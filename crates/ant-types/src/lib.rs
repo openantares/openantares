@@ -24,8 +24,6 @@
 //! trailer, hashing) is the `antares-format` crate; this crate is just
 //! the record vocabulary.
 
-#![warn(missing_docs)]
-
 pub mod author;
 pub mod belief;
 pub mod decimal;

@@ -1,3 +1,6 @@
+//! Demo: write a small `.ant` stream and read it back, printing the
+//! compressed vs raw sizes.
+
 use ant_types::{Evidence, EvidenceId, ProjectId, TenantId};
 use antares_format::*;
 fn main() {

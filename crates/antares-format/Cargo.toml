@@ -1,6 +1,6 @@
 [package]
 name = "antares-format"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Open Antares format (.ant): zstd-framed NDJSON container for graph + evidence + belief exchange"
 readme = "README.md"
@@ -8,10 +8,15 @@ homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
 license = "Apache-2.0"
 
+# Registry dependents build with --cap-lints=allow, so deny only
+# gates this crate's own (and workspace) builds.
+[lints.rust]
+missing_docs = "deny"
+
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.1.0" }
+ant-types = { path = "../ant-types", version = "0.1.1" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

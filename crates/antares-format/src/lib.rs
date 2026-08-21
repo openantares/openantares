@@ -89,8 +89,6 @@
 //! obligation: every `evidence_id` referenced by an exported
 //! observation/edge should have its evidence record included.
 
-#![warn(missing_docs)]
-
 use std::io::{BufRead, BufReader, Read, Write};
 
 use serde::{Deserialize, Serialize};

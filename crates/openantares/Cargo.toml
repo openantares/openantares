@@ -1,6 +1,6 @@
 [package]
 name = "openantares"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "OpenAntares CLI: validate and inspect .ant interchange files"
 readme = "README.md"
@@ -9,4 +9,4 @@ repository = "https://github.com/openantares/openantares"
 license = "Apache-2.0"
 
 [dependencies]
-antares-format = { path = "../antares-format", version = "0.1.0" }
+antares-format = { path = "../antares-format", version = "0.1.1" }

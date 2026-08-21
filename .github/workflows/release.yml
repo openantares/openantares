@@ -1,0 +1,106 @@
+name: release
+
+# Publishing is driven by tags: push `vX.Y.Z` and this publishes that version
+# to crates.io. Nothing publishes from a branch push, so an ordinary merge can
+# never reach the registry by accident.
+#
+# The gate is re-run HERE rather than trusted from the branch build. A tag can
+# point at any commit, CI green on `main` says nothing about the commit a tag
+# actually names, and crates.io cannot be undone — so the checks run against
+# the tagged tree itself, and publish only starts once they all pass.
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: gate (must pass before publishing)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: check out the published goldens
+        uses: actions/checkout@v4
+        with:
+          repository: openantares/ant
+          ref: v0.3.0
+          path: format
+      - uses: Swatinem/rust-cache@v2
+
+      # The tag is the release's name; the manifests are what actually ships.
+      # If they disagree, the tag is a lie about its own contents — stop before
+      # anything reaches the registry.
+      - name: tag must match the crate versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for crate in ant-types antares-format openantares; do
+            manifest=$(grep -m1 '^version' "crates/$crate/Cargo.toml" | cut -d'"' -f2)
+            if [ "$manifest" != "$tag" ]; then
+              echo "::error::tag $GITHUB_REF_NAME says $tag but $crate is $manifest" >&2
+              exit 1
+            fi
+            echo "  $crate $manifest == tag $tag"
+          done
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+        env:
+          ANT_CONFORMANCE_GOLDEN: ${{ github.workspace }}/format/conformance/golden
+      - run: cargo package --workspace
+
+  publish:
+    name: publish to crates.io
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A published version is permanent, so the token lives behind an
+    # environment: protection rules on `crates-io` (reviewers, branch limits)
+    # apply to this job without touching the workflow.
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      # Dependency order is mandatory: antares-format depends on ant-types by
+      # `version`, and openantares on antares-format, so each must exist on the
+      # registry before the next resolves. Recent cargo waits for the index
+      # itself; --no-verify is deliberately NOT used, so each crate is compiled
+      # from its own tarball on the way out.
+      - name: ant-types
+        run: cargo publish -p ant-types
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: antares-format
+        run: cargo publish -p antares-format
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: openantares
+        run: cargo publish -p openantares
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  github-release:
+    name: github release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: create the release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

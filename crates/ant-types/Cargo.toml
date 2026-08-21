@@ -1,6 +1,6 @@
 [package]
 name = "ant-types"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, schema"
 readme = "README.md"
@@ -10,6 +10,11 @@ repository = "https://github.com/openantares/openantares"
 # and antares-format are the subset published to openantares/ant, and
 # the public subset has to be coherently licensed on its own.
 license = "Apache-2.0"
+
+# Registry dependents build with --cap-lints=allow, so deny only
+# gates this crate's own (and workspace) builds.
+[lints.rust]
+missing_docs = "deny"
 
 [features]
 default = []
