@@ -10,42 +10,59 @@ use crate::ids::{EdgeId, TypeName, VertexId};
 
 pub use crate::property::PropertyValue;
 
+/// A graph node: business id, display name, qualified type label,
+/// and typed properties. The payload of a `vertex` record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Vertex {
+    /// Business id, unique within the type (e.g. `deal_1`).
     pub id: VertexId,
+    /// Human-readable display name.
     pub name: String,
     /// Namespace-qualified, e.g. "Antares.Deal".
     pub label: TypeName,
+    /// Typed properties, keyed by property name.
     pub properties: BTreeMap<String, PropertyValue>,
 }
 
+/// A directed, labeled edge between two vertices, with optional
+/// bitemporal validity. The payload of an `edge` record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
+    /// Edge id, unique within the scope.
     pub id: EdgeId,
+    /// Source vertex id.
     pub src: VertexId,
+    /// Source vertex type.
     pub src_type: TypeName,
+    /// Destination vertex id.
     pub dst: VertexId,
+    /// Destination vertex type.
     pub dst_type: TypeName,
     /// Relation name (e.g. "hasStakeholder"), NOT namespace-qualified.
     pub label: String,
+    /// Typed properties carried on the edge, keyed by property name.
     pub properties: BTreeMap<String, PropertyValue>,
 
     // --- Antares-native bitemporal annotations ---
     //
     // None on valid_from = valid from -infinity (always was).
     // None on valid_to   = still holds (no end).
-    // observed_at        = wall-clock time we recorded this fact.
+    // observed_at        = wall-clock time the fact was recorded.
     // extracted_at       = wall-clock time the extractor produced it.
+    /// Start of real-world validity; `None` = always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_from: Option<DateTime<Utc>>,
+    /// End of real-world validity (exclusive); `None` = still holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_to: Option<DateTime<Utc>>,
+    /// Wall-clock time the fact was recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_at: Option<DateTime<Utc>>,
+    /// Wall-clock time the extractor produced it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extracted_at: Option<DateTime<Utc>>,
 
-    /// Confidence in [0,1] for the fact. `None` is treated as 1.0 for
+    /// Confidence in `[0,1]` for the fact. `None` is treated as 1.0 for
     /// matching purposes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
@@ -86,8 +103,12 @@ impl Edge {
     }
 }
 
+/// A set of vertices and edges, as returned by queries or carried in
+/// bulk payloads.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SubGraph {
+    /// The vertices.
     pub nodes: Vec<Vertex>,
+    /// The edges.
     pub edges: Vec<Edge>,
 }

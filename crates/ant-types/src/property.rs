@@ -60,13 +60,16 @@ const VAL: &str = "v";
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropertyValue {
     // ---- Legacy scalars: bare JSON on the wire, unchanged forever ----
+    /// SQL NULL / JSON `null`.
     Null,
+    /// Boolean.
     Bool(bool),
     /// SQL BIGINT.
     Long(i64),
     /// SQL DOUBLE PRECISION. Already a double — the gap this type had
     /// was never width, it was exactness, and `Decimal` fills that.
     Float(f64),
+    /// Free-form text.
     Text(String),
     /// Arbitrary nested JSON (JSONB columns, document subdocuments).
     Json(Value),
@@ -96,6 +99,7 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
+    /// The `&str` inside a `Text` value; `None` for every other variant.
     pub fn as_str(&self) -> Option<&str> {
         if let Self::Text(s) = self {
             Some(s.as_str())

@@ -1,8 +1,8 @@
 //! Antares-native first-class evidence.
 //!
 //! Evidence is a kernel concept, not a user-defined entity. Every fact
-//! (Edge) may reference one or more Evidence records via `evidenced_by`.
-//! Tripwires recursively accumulate evidence from their causes.
+//! (Edge) may reference one or more Evidence records via `evidenced_by`,
+//! and derived records may accumulate evidence from their causes.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,10 +16,16 @@ use crate::ids::{ProjectId, TenantId};
 #[serde(transparent)]
 pub struct EvidenceId(pub String);
 
+/// A source-bound piece of supporting material: where it came from,
+/// the literal content, and optional span offsets into the source.
+/// The payload of an `evidence` record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Evidence {
+    /// Evidence id, unique within the scope.
     pub id: EvidenceId,
+    /// Owning tenant.
     pub tenant_id: TenantId,
+    /// Owning project.
     pub project_id: ProjectId,
     /// URI/path of the source artifact (e.g. "s3://antares/calls/2026-04-29.vtt"
     /// or "antares://transcripts/meeting_001"). Required.
@@ -31,18 +37,25 @@ pub struct Evidence {
     pub source_id: String,
     /// The literal text/data the evidence points at. Required.
     pub content: String,
+    /// Character offset of the span start in the source, inclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub char_start: Option<u32>,
+    /// Character offset of the span end in the source, exclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub char_end: Option<u32>,
+    /// Byte offset of the span start in the source, inclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_start: Option<u64>,
+    /// Byte offset of the span end in the source, exclusive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub byte_end: Option<u64>,
+    /// Wall-clock time the source event happened or was seen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_at: Option<DateTime<Utc>>,
+    /// Wall-clock time the extractor produced this record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extracted_at: Option<DateTime<Utc>>,
+    /// Version tag of the producing extractor, verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extractor_version: Option<String>,
     /// Confidence in `[0,1]`. `None` = treated as 1.0.

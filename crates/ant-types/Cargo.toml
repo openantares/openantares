@@ -3,6 +3,7 @@ name = "ant-types"
 version = "0.1.0"
 edition = "2021"
 description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, schema"
+readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
 # Apache-2.0 like antares-format, NOT the workspace's MIT: this crate

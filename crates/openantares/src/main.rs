@@ -1,6 +1,9 @@
 //! `openantares` — validate and inspect `.ant` interchange files.
 //!
-//! A thin CLI over `antares-format`'s reader. Two read-only commands:
+//! This is a command-line tool, not a library: run `openantares` with
+//! no arguments for usage, and see the repository README for the
+//! format specification and the full toolchain. A thin CLI over
+//! `antares-format`'s reader, with two read-only commands:
 //!
 //! ```text
 //! openantares validate <file.ant> [file2.ant ...]

@@ -1,10 +1,18 @@
-//! Open Antares format (`.ant`) — v0.1.
+//! The Open Antares (`.ant`) container format.
 //!
 //! A self-contained, compressed, streamable container for exchanging a
 //! selection of an Antares world model: schema types, vertices, edges,
 //! observations, evidence (structured AND unstructured together),
-//! beliefs, and vector docs (vectors must ride: the server does not
-//! persist vector indexes).
+//! beliefs, and vector docs (vectors ride in the file so an import can
+//! restore them without re-embedding).
+//!
+//! The entry points are [`AntWriter`] (records in, `.ant` bytes out)
+//! and [`AntReader`] (streaming reads with integrity verification);
+//! both have runnable examples. [`SUPPORTED_FORMAT_VERSION`] names the
+//! `MAJOR.MINOR` format version this build reads and writes — crate
+//! version and format version are formally independent. The
+//! compatibility rule is same-major: any minor at the same major is
+//! readable (see [`FormatVersion`]).
 //!
 //! ## Container
 //!
@@ -60,6 +68,9 @@
 //! type — an envelope decodes as a plain JSON object rather than as a
 //! decimal — which is precisely what "the file is ahead of this reader"
 //! is there to signal.
+//!
+//! ## Integrity and identification
+//!
 //! - The trailer's `sha256` is over every preceding UNCOMPRESSED line
 //!   including newlines (manifest through the last record), so
 //!   truncation and tampering are detectable without a second pass.
@@ -78,6 +89,8 @@
 //! obligation: every `evidence_id` referenced by an exported
 //! observation/edge should have its evidence record included.
 
+#![warn(missing_docs)]
+
 use std::io::{BufRead, BufReader, Read, Write};
 
 use serde::{Deserialize, Serialize};
@@ -85,7 +98,9 @@ use sha2::{Digest, Sha256};
 
 use ant_types::{Belief, Evidence, Observation, SchemaType, Vertex};
 
+/// The `MAJOR.MINOR` format version written into new manifests.
 pub const FORMAT_VERSION: &str = "0.3";
+/// Conventional file extension for the container.
 pub const EXTENSION: &str = "ant";
 
 /// The `.ant` format version this crate reads and writes, as a
@@ -130,7 +145,9 @@ pub const FORMAT_MINOR: u32 = 3;
 /// it needs a major bump.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FormatVersion {
+    /// Major: different majors are mutually unreadable.
     pub major: u32,
+    /// Minor: additive-only within a major.
     pub minor: u32,
 }
 
@@ -164,12 +181,22 @@ impl std::fmt::Display for FormatVersion {
     }
 }
 
+/// Everything that can go wrong reading or writing a `.ant` stream.
 #[derive(Debug, thiserror::Error)]
 pub enum AntError {
+    /// Underlying I/O failure.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// A line failed to parse as JSON.
     #[error("json on line {line}: {err}")]
-    Json { line: u64, err: String },
+    Json {
+        /// 1-based line number in the uncompressed stream.
+        line: u64,
+        /// The parser's message.
+        err: String,
+    },
+    /// The input is not a `.ant` container (bad framing, missing or
+    /// malformed manifest, misplaced trailer).
     #[error("not an .ant stream: {0}")]
     NotAnt(String),
     /// Refused by the compatibility policy. The message says WHICH rule
@@ -177,6 +204,8 @@ pub enum AntError {
     /// whether to upgrade, re-export, or file a bug.
     #[error("{0}")]
     Version(String),
+    /// Trailer verification failed: hash or counts do not match the
+    /// records actually read (truncation or tampering).
     #[error("integrity: {0}")]
     Integrity(String),
 }
@@ -188,30 +217,42 @@ pub use ant_types::Edge;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VectorRecord {
+    /// Which plane the embedded record belongs to (e.g. "vertex").
     pub record_type: String,
+    /// Id of the embedded record within that plane.
     pub record_id: String,
+    /// Type label of the embedded record.
     pub label: String,
+    /// Which field of the record the embedding covers.
     pub field: String,
+    /// The embedding itself.
     pub vector: Vec<f32>,
+    /// Short preview of the embedded text, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_preview: Option<String>,
+    /// Evidence ids backing the embedded content, when available.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence_ids: Vec<String>,
 }
 
+/// The first record of every stream: what this file is, which scope
+/// it came from, and what it claims to contain.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     /// Always "antares" — belt for the zstd-magic braces.
     pub format: String,
-    /// Semver of this container layout.
+    /// `MAJOR.MINOR` version of this container layout.
     pub version: String,
+    /// Originating tenant id.
     pub tenant_id: u64,
+    /// Originating project id.
     pub project_id: u64,
     /// Free-form description of what was selected (whole scope, seed
     /// query, digest params...). Recorded verbatim, not interpreted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection: Option<serde_json::Value>,
+    /// When the export was produced.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Producer identifier (server version, tool).
@@ -219,20 +260,30 @@ pub struct Manifest {
     pub producer: Option<String>,
 }
 
+/// Per-kind record tallies, carried in the trailer and checked by the
+/// reader against what it actually saw.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Counts {
+    /// `schema_type` records.
     pub schema_types: u64,
+    /// `vertex` records.
     pub vertices: u64,
+    /// `edge` records.
     pub edges: u64,
+    /// `observation` records.
     pub observations: u64,
+    /// `evidence` records.
     pub evidence: u64,
+    /// `belief` records.
     pub beliefs: u64,
+    /// `vector` records.
     pub vectors: u64,
-    /// Added in v0.2. `#[serde(default)]` on the struct means a v0.1
-    /// trailer still deserializes with these at zero.
+    /// `vertex_tombstone` records. Added in v0.2; `#[serde(default)]`
+    /// means a v0.1 trailer still deserializes with these at zero.
     #[serde(default)]
     pub vertex_tombstones: u64,
+    /// `edge_tombstone` records. Added in v0.2.
     #[serde(default)]
     pub edge_tombstones: u64,
 }
@@ -290,45 +341,111 @@ pub struct Tombstone {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AntRecord {
+    /// The stream header. Exactly one, first line.
     Manifest(Manifest),
+    /// A schema type declaration.
     SchemaType {
+        /// The declaration.
         data: SchemaType,
     },
+    /// A graph vertex.
     Vertex {
+        /// The vertex.
         data: Vertex,
     },
+    /// A graph edge.
     Edge {
+        /// The edge.
         data: Edge,
     },
+    /// An observation.
     Observation {
+        /// The observation.
         data: Observation,
     },
+    /// An evidence record.
     Evidence {
+        /// The evidence.
         data: Evidence,
     },
+    /// A belief version.
     Belief {
+        /// The belief.
         data: Belief,
     },
+    /// An embedding document.
     Vector {
+        /// The embedding document.
         data: VectorRecord,
     },
     /// Deletion of a vertex. Cascades to its edges on import, exactly
     /// as a live delete does.
     VertexTombstone {
+        /// The deletion.
         data: Tombstone,
     },
     /// Deletion of an edge.
     EdgeTombstone {
+        /// The deletion.
         data: Tombstone,
     },
+    /// The stream footer: per-kind counts and the integrity hash.
+    /// Exactly one, last line.
     Trailer {
+        /// Per-kind record tallies.
         counts: Counts,
+        /// Hex sha256 over every preceding uncompressed line.
         sha256: String,
     },
 }
 
 /// Streaming `.ant` writer: records in, zstd-framed NDJSON out.
 /// Call [`AntWriter::finish`] to emit the trailer and flush.
+///
+/// # Example
+///
+/// Write a small file — manifest first (via [`AntWriter::new`]), then
+/// records, then [`AntWriter::finish`] to append the trailer with the
+/// per-kind counts and the integrity hash:
+///
+/// ```
+/// use ant_types::{Evidence, ProjectId, TenantId, TypeName, Vertex, VertexId};
+/// use antares_format::{AntRecord, AntWriter, Manifest, FORMAT_VERSION};
+/// use std::collections::BTreeMap;
+///
+/// # fn main() -> Result<(), antares_format::AntError> {
+/// let manifest = Manifest {
+///     format: "antares".into(),
+///     version: FORMAT_VERSION.into(),
+///     tenant_id: 1,
+///     project_id: 1,
+///     selection: None,
+///     created_at: None,
+///     producer: Some("doctest/0.1".into()),
+/// };
+///
+/// // Any `std::io::Write` works; a Vec keeps the example in memory.
+/// let mut writer = AntWriter::new(Vec::new(), manifest, 0)?;
+/// writer.write(AntRecord::Vertex {
+///     data: Vertex {
+///         id: VertexId("deal_1".into()),
+///         name: "Example Deal".into(),
+///         label: TypeName("Demo.Deal".into()),
+///         properties: BTreeMap::new(),
+///     },
+/// })?;
+/// writer.write(AntRecord::Evidence {
+///     data: Evidence::quick(
+///         "ev1", TenantId(1), ProjectId(1),
+///         "note", "n1", "example content",
+///     ),
+/// })?;
+///
+/// let bytes = writer.finish()?; // appends the trailer, flushes zstd
+/// assert!(!bytes.is_empty());
+/// # Ok(())
+/// # }
+/// ```
 pub struct AntWriter<W: Write> {
     enc: zstd::stream::write::Encoder<'static, W>,
     hasher: Sha256,
@@ -363,6 +480,9 @@ impl<W: Write> AntWriter<W> {
         Ok(())
     }
 
+    /// Append one record. The manifest is written by [`AntWriter::new`]
+    /// and the trailer by [`AntWriter::finish`]; passing either here is
+    /// an error.
     pub fn write(&mut self, rec: AntRecord) -> Result<(), AntError> {
         match &rec {
             AntRecord::Manifest(_) => {
@@ -409,10 +529,59 @@ impl<W: Write> AntWriter<W> {
 }
 
 /// Streaming `.ant` reader. Yields records after validating the
-/// manifest; [`AntReader::finish`] (or reading through the trailer)
-/// verifies counts + hash.
+/// manifest; reading through to the trailer verifies counts + hash and
+/// sets [`AntReader::verified`].
+///
+/// # Example
+///
+/// Read back a stream, one record at a time. The reader hashes every
+/// line as it goes; when [`AntReader::next_record`] returns `Ok(None)`
+/// the trailer's sha256 and per-kind counts have been checked against
+/// what was actually read:
+///
+/// ```
+/// use antares_format::{AntReader, AntRecord, AntWriter, Manifest, FORMAT_VERSION};
+///
+/// # fn main() -> Result<(), antares_format::AntError> {
+/// # let manifest = Manifest {
+/// #     format: "antares".into(),
+/// #     version: FORMAT_VERSION.into(),
+/// #     tenant_id: 1,
+/// #     project_id: 1,
+/// #     selection: None,
+/// #     created_at: None,
+/// #     producer: None,
+/// # };
+/// # let mut writer = AntWriter::new(Vec::new(), manifest, 0)?;
+/// # writer.write(AntRecord::Evidence {
+/// #     data: ant_types::Evidence::quick(
+/// #         "ev1", ant_types::TenantId(1), ant_types::ProjectId(1),
+/// #         "note", "n1", "example content",
+/// #     ),
+/// # })?;
+/// # let bytes = writer.finish()?;
+/// let mut reader = AntReader::new(bytes.as_slice())?;
+/// assert_eq!(reader.manifest.format, "antares");
+///
+/// let mut records = 0;
+/// while let Some(record) = reader.next_record()? {
+///     match record {
+///         AntRecord::Evidence { data } => assert_eq!(data.content, "example content"),
+///         other => panic!("unexpected record: {other:?}"),
+///     }
+///     records += 1;
+/// }
+///
+/// // `Ok(None)` means the trailer was reached AND verified: its hash
+/// // and counts matched the records streamed above.
+/// assert!(reader.verified);
+/// assert_eq!(records, 1);
+/// # Ok(())
+/// # }
+/// ```
 pub struct AntReader<R: Read> {
     lines: std::io::Lines<BufReader<zstd::stream::read::Decoder<'static, BufReader<R>>>>,
+    /// The manifest, validated during [`AntReader::new`].
     pub manifest: Manifest,
     hasher: Sha256,
     counts: Counts,
@@ -430,6 +599,8 @@ pub struct AntReader<R: Read> {
 }
 
 impl<R: Read> AntReader<R> {
+    /// Open a `.ant` stream: decode the framing, read and validate the
+    /// manifest, and apply the version compatibility policy.
     pub fn new(input: R) -> Result<Self, AntError> {
         let dec = zstd::stream::read::Decoder::new(input)
             .map_err(|e| AntError::NotAnt(format!("zstd: {e}")))?;

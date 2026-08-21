@@ -39,6 +39,7 @@ impl Decimal {
         (scale <= MAX_PRECISION).then_some(Self { unscaled, scale })
     }
 
+    /// The unscaled integer digits (value = `unscaled × 10^-scale`).
     pub fn unscaled(&self) -> i128 {
         self.unscaled
     }
@@ -66,6 +67,7 @@ impl Decimal {
         digits.max(self.scale)
     }
 
+    /// True when the value is zero at any scale.
     pub fn is_zero(&self) -> bool {
         self.unscaled == 0
     }

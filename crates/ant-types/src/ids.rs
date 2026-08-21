@@ -1,3 +1,7 @@
+//! Identifier newtypes: tenant, project, vertex, edge, namespace,
+//! type name. Each is a thin wrapper so ids of different planes can't
+//! be mixed up silently.
+
 use serde::{Deserialize, Serialize};
 
 /// Tenant identifier. Tenants are the top-level isolation boundary.

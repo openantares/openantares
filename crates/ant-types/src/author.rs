@@ -30,8 +30,11 @@ pub struct TokenId(pub String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubjectType {
+    /// A person, acting through an interactive client.
     User,
+    /// A service connector or automation.
     Service,
+    /// A desktop client instance.
     Desktop,
 }
 
@@ -54,6 +57,7 @@ pub struct AuthorStamp {
     /// local-bootstrap contexts that don't transit a token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_id: Option<TokenId>,
+    /// What class of subject authored the record.
     pub subject_type: SubjectType,
     /// Wall-clock time the authoring happened. Distinct from
     /// `observed_at` / `extracted_at`, which are content timestamps;

@@ -51,12 +51,17 @@ use crate::observation::ObservationId;
 #[serde(transparent)]
 pub struct BeliefId(pub String);
 
+/// One version of an inferred fact about a subject. The payload of a
+/// `belief` record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Belief {
     /// Server-assigned. Unique per version.
     pub id: BeliefId,
+    /// Owning tenant.
     pub tenant_id: TenantId,
+    /// Owning project.
     pub project_id: ProjectId,
+    /// The vertex this belief is about.
     pub subject_id: VertexId,
     /// What aspect of the subject this belief is about.
     /// Examples: `role_in_deal`, `compliance_gate_state`,
@@ -66,6 +71,7 @@ pub struct Belief {
     /// The inferred value as JSON. Can be a string, number, boolean,
     /// or structured object. Direction-neutral by construction.
     pub value_json: Value,
+    /// Confidence in `[0,1]`; `None` when the producer does not score.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
     /// Server-assigned. Monotonically increasing per
@@ -81,10 +87,13 @@ pub struct Belief {
     /// optionally extra evidence the materializer attached directly).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence_ids: Vec<EvidenceId>,
+    /// Start of real-world validity; `None` = always was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_from: Option<DateTime<Utc>>,
+    /// End of real-world validity (exclusive); `None` = still holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_to: Option<DateTime<Utc>>,
+    /// Wall-clock time the underlying facts were observed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_at: Option<DateTime<Utc>>,
     /// Server-assigned. Wall-clock time of the version's insertion.
@@ -120,14 +129,23 @@ pub struct Belief {
 /// does NOT create a new version.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BeliefContent {
+    /// Canonical JSON string of the value.
     pub value_json: String,
+    /// Confidence as raw `f32` bits (`f32` itself has no `Hash`).
     pub confidence_bits: Option<u32>,
+    /// Sorted source observation ids.
     pub derived_from: Vec<ObservationId>,
+    /// Sorted evidence ids.
     pub evidence_ids: Vec<EvidenceId>,
+    /// Start of real-world validity.
     pub valid_from: Option<DateTime<Utc>>,
+    /// End of real-world validity (exclusive).
     pub valid_to: Option<DateTime<Utc>>,
+    /// Wall-clock observation time.
     pub observed_at: Option<DateTime<Utc>>,
+    /// Decay policy hint, verbatim.
     pub decay_policy: Option<String>,
+    /// Canonical JSON string of the metadata.
     pub metadata: String,
 }
 

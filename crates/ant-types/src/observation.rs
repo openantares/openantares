@@ -35,8 +35,11 @@ pub struct ObservationId(pub String);
 /// a conflict.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Observation {
+    /// Observation id, unique within the scope.
     pub id: ObservationId,
+    /// Owning tenant.
     pub tenant_id: TenantId,
+    /// Owning project.
     pub project_id: ProjectId,
 
     /// Identifier of the source event (e.g. "meeting_001",
@@ -47,7 +50,7 @@ pub struct Observation {
     pub source_event_id: Option<String>,
 
     /// URI of the source artifact (e.g. "antares://transcripts/m1#1240-1295").
-    /// Optional and may duplicate evidence_ids[0].source_uri.
+    /// Optional and may duplicate `evidence_ids[0].source_uri`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_uri: Option<String>,
 
@@ -77,6 +80,7 @@ pub struct Observation {
     /// Wall-clock time the extractor produced this observation.
     pub extracted_at: DateTime<Utc>,
 
+    /// Confidence in `[0,1]`; `None` is treated as 1.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
 
@@ -85,6 +89,7 @@ pub struct Observation {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence_ids: Vec<EvidenceId>,
 
+    /// Version tag of the producing extractor, verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extractor_version: Option<String>,
 
