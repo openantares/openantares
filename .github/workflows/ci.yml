@@ -34,8 +34,20 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # The workspace suite includes antares-format's conformance target,
+      # and this repository deliberately keeps no goldens of its own — they
+      # live once, published, in openantares/ant. So the whole-workspace run
+      # needs them checked out too, at the same pin as the conformance job.
+      - name: check out the published goldens
+        uses: actions/checkout@v4
+        with:
+          repository: openantares/ant
+          ref: v0.3.0
+          path: format
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+        env:
+          ANT_CONFORMANCE_GOLDEN: ${{ github.workspace }}/format/conformance/golden
 
   # The conformance suite runs against the goldens as PUBLISHED, not a copy
   # kept here — one set of bytes, so the canonical writer and the published
