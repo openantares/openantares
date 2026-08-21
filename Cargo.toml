@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/ant-types", "crates/antares-format", "crates/openantares"]
+
+# The three crate manifests are byte-identical to the ones upstream, so
+# the versions they inherit have to match upstream's too — otherwise a
+# crate published from here would resolve differently from the same
+# source built there.
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = [
+    "serde",
+    "clock",
+    "std",
+] }
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+# Optional, and off unless a consumer asks for it: ant-types exposes a
+# `utoipa` feature so a server can derive OpenAPI from the record types.
+# A format crate has no business pulling a web-framework doc generator
+# by default.
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }

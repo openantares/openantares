@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["*"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # The conformance suite runs against the goldens as PUBLISHED, not a copy
+  # kept here — one set of bytes, so the canonical writer and the published
+  # format cannot drift apart silently.
+  #
+  # The ref below is pinned to the format's release tag. BUMP IT IN THE SAME
+  # COMMIT AS ANY FORMAT BUMP: floating it at main would let a format change
+  # land in the other repository and turn this job red with no change here,
+  # and worse, would let this job go green against goldens no release ever
+  # shipped.
+  conformance:
+    name: conformance (against openantares/ant goldens)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: check out the published goldens
+        uses: actions/checkout@v4
+        with:
+          repository: openantares/ant
+          ref: v0.3.0
+          path: format
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p antares-format --test conformance -- --nocapture
+        env:
+          ANT_CONFORMANCE_GOLDEN: ${{ github.workspace }}/format/conformance/golden
+
+  # Everything that would reach crates.io, checked before it can: a crate that
+  # packages locally but not from a clean tree is found here rather than
+  # halfway through a publish, which cannot be undone.
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # --workspace, not three separate invocations: the two dependents carry
+      # `path` + `version` on a sibling, and packaging them one at a time makes
+      # cargo look for that version on the registry — which fails until the
+      # first publish, and would fail again on any version bump. The workspace
+      # form stages the siblings into a temporary registry, so all three are
+      # packaged AND verified by compiling from their own tarballs.
+      - run: cargo package --workspace

@@ -1,0 +1,27 @@
+[package]
+name = "ant-types"
+version = "0.1.0"
+edition = "2021"
+description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, schema"
+homepage = "https://github.com/openantares/openantares"
+repository = "https://github.com/openantares/openantares"
+# Apache-2.0 like antares-format, NOT the workspace's MIT: this crate
+# and antares-format are the subset published to openantares/ant, and
+# the public subset has to be coherently licensed on its own.
+license = "Apache-2.0"
+
+[features]
+default = []
+# The engine turns this on so its OpenAPI derives keep working. It is
+# off for anyone consuming the format: a format crate has no business
+# depending on a web-framework doc generator.
+utoipa = ["dep:utoipa"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+utoipa = { workspace = true, optional = true }
