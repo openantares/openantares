@@ -67,6 +67,7 @@ pub const SUPPORT_CONTRACT_VERSION: u32 = 1;
 
 /// How the support was measured. A closed set: an unknown method is a
 /// parse error, because "some other method" is not evidence.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +78,7 @@ pub enum SupportMethod {
 }
 
 /// How the rows the measurement covered were chosen.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,8 +93,64 @@ pub enum SamplingMethod {
     CappedPrefix,
 }
 
+/// Which of a sampling's optional fields a method requires, and which it
+/// forbids. [`Sampling::validate`] applies it; the published JSON Schema
+/// states it as `if`/`then` — both read THIS table, so the validator and
+/// the schema cannot disagree about what a well-formed sample is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplingFieldRule {
+    /// Fields that must be present for the method.
+    pub required: &'static [&'static str],
+    /// Fields that must be absent for the method.
+    pub forbidden: &'static [&'static str],
+}
+
+impl SamplingMethod {
+    /// Every method, in declaration order.
+    pub const ALL: [SamplingMethod; 4] = [
+        SamplingMethod::FullScan,
+        SamplingMethod::SystemRepeatable,
+        SamplingMethod::BernoulliRepeatable,
+        SamplingMethod::CappedPrefix,
+    ];
+
+    /// The wire name of the method (its serde rename).
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            SamplingMethod::FullScan => "full_scan",
+            SamplingMethod::SystemRepeatable => "system_repeatable",
+            SamplingMethod::BernoulliRepeatable => "bernoulli_repeatable",
+            SamplingMethod::CappedPrefix => "capped_prefix",
+        }
+    }
+
+    /// The presence rule for the method. Exhaustive on purpose: a new
+    /// method does not compile until it says what it needs.
+    pub fn field_rule(self) -> SamplingFieldRule {
+        match self {
+            SamplingMethod::FullScan => SamplingFieldRule {
+                required: &[],
+                forbidden: &["percent", "seed", "cap"],
+            },
+            SamplingMethod::SystemRepeatable | SamplingMethod::BernoulliRepeatable => {
+                SamplingFieldRule {
+                    required: &["percent", "seed"],
+                    forbidden: &[],
+                }
+            }
+            SamplingMethod::CappedPrefix => SamplingFieldRule {
+                required: &["cap"],
+                forbidden: &[],
+            },
+        }
+    }
+}
+
 /// The sample a measurement was taken over, described well enough to
-/// be taken again.
+/// be taken again. The presence rules per method are the rule, not
+/// decoration: a sampled measurement nobody can take again is not
+/// evidence, and a full scan has no sample to describe.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -122,50 +180,58 @@ impl Sampling {
         }
     }
 
+    /// Whether the named optional field is set. The names are the wire
+    /// names the rule table uses.
+    fn has(&self, field: &str) -> bool {
+        match field {
+            "percent" => self.percent.is_some(),
+            "seed" => self.seed.is_some(),
+            "cap" => self.cap.is_some(),
+            other => unreachable!("sampling rule names unknown field {other}"),
+        }
+    }
+
     fn check(&self, where_: &str) -> Result<(), String> {
-        match self.method {
-            SamplingMethod::FullScan => {
-                if self.percent.is_some() || self.seed.is_some() || self.cap.is_some() {
-                    return Err(format!(
-                        "{where_}: sampling.method is full_scan, so percent/seed/cap must be \
-                         absent — a full scan has no sample to describe"
-                    ));
-                }
+        let rule = self.method.field_rule();
+        let method = self.method.wire_name();
+        for field in rule.required {
+            if !self.has(field) {
+                return Err(match *field {
+                    "seed" => format!(
+                        "{where_}: sampling.seed is required for {method} — a sampled \
+                         measurement nobody can take again is not evidence"
+                    ),
+                    _ => format!("{where_}: sampling.{field} is required for {method}"),
+                });
             }
-            SamplingMethod::SystemRepeatable | SamplingMethod::BernoulliRepeatable => {
-                let Some(p) = self.percent else {
-                    return Err(format!(
-                        "{where_}: sampling.percent is required for {:?}",
-                        self.method
-                    ));
-                };
-                if !(p > 0.0 && p <= 100.0) {
-                    return Err(format!("{where_}: sampling.percent {p} is not in (0, 100]"));
-                }
-                if self.seed.is_none() {
-                    return Err(format!(
-                        "{where_}: sampling.seed is required for {:?} — a sampled measurement \
-                         nobody can take again is not evidence",
-                        self.method
-                    ));
-                }
+        }
+        for field in rule.forbidden {
+            if self.has(field) {
+                return Err(format!(
+                    "{where_}: sampling.method is {method}, so {} must be absent — a full \
+                     scan has no sample to describe",
+                    rule.forbidden.join("/")
+                ));
             }
-            SamplingMethod::CappedPrefix => {
-                let Some(cap) = self.cap else {
-                    return Err(format!(
-                        "{where_}: sampling.cap is required for capped_prefix"
-                    ));
-                };
-                if cap == 0 {
-                    return Err(format!("{where_}: sampling.cap must be positive"));
-                }
+        }
+        if let Some(p) = self.percent {
+            if !(p > 0.0 && p <= 100.0) {
+                return Err(format!("{where_}: sampling.percent {p} is not in (0, 100]"));
             }
+        }
+        if self.cap == Some(0) {
+            return Err(format!("{where_}: sampling.cap must be positive"));
         }
         Ok(())
     }
 }
 
-/// The measurement behind an inferred relationship.
+/// The measurement behind a proposed relationship (the mapper's evidence
+/// contract): the denominator, the numerator, the target side's
+/// uniqueness, how it was sampled, a fingerprint tying it to the run, and
+/// the threshold it was judged against. A ratio without the bar it
+/// cleared is not a claim.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -307,7 +373,9 @@ impl RelationSupport {
 /// The operator is executable, with exact PostgreSQL semantics, so the
 /// export can reproduce the comparison the measurement made. It is not
 /// a transformation of the source value into a target id: see
-/// [`Normalization`] for why that distinction is the whole point.
+/// [`Normalization`] for why that distinction is the whole point. On the
+/// wire a cast is the object form; the rest are strings.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -325,6 +393,7 @@ pub enum NormalizationOp {
 /// Casts the contract admits. Deliberately narrow: each one has
 /// unambiguous PostgreSQL semantics and a total ordering that a chunked
 /// read can rely on.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -395,6 +464,7 @@ impl NormalizationOp {
 /// the identity of the row it found. It does not transform the source
 /// string and assume the result names a target — that assumption
 /// invents an id for every value that has no target row.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -418,6 +488,7 @@ impl Normalization {
 // ---------------------------------------------------------------------
 
 /// The stable identity every revision of one proposal shares.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -425,6 +496,7 @@ impl Normalization {
 pub struct RelationshipProposalId(pub String);
 
 /// The identity of ONE immutable revision of a proposal.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -435,6 +507,7 @@ pub struct ProposalRevisionId(pub String);
 /// one shape of one source at one moment; without the manifest it was
 /// measured against, a later reader cannot tell whether the source has
 /// moved underneath it.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -456,9 +529,12 @@ pub struct SourceManifestRef {
     pub policy_hash: Option<String>,
 }
 
-/// The run that produced a proposal, and the version of the loop that
-/// ran. Two proposals from different loop versions are not the same
-/// claim even when they name the same join.
+/// The run that produced a proposal, the version of the loop that ran,
+/// and the source manifest it read. Two proposals from different loop
+/// versions are not the same claim even when they name the same join. A
+/// model that suggested the join is recorded so its suggestions can be
+/// graded — the measurement is still what decides.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -479,9 +555,11 @@ pub struct ProposalOrigin {
     pub model_version: Option<String>,
 }
 
-/// The relationship being proposed, in the mapper's own terms
-/// (PRODUCT-192's contract): which rows, which columns, and what is
-/// applied to both sides before they are compared.
+/// The relationship being proposed, in the mapper's own terms: which
+/// types, which relations, which columns, and what is applied to both
+/// sides before they are compared. The key column lists have the same
+/// length — a join compares one column to one column.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -507,7 +585,10 @@ pub struct ProposedRelation {
 }
 
 /// One SQL probe the loop ran to measure a proposal, kept so the
-/// measurement can be re-derived rather than believed.
+/// measurement can be re-derived rather than believed. `statement` is
+/// the statement AS EXECUTED, parameterized — never with customer values
+/// inlined. `evidenceId`, when present, MUST resolve inside the file.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -536,6 +617,7 @@ pub struct ProbeRef {
 /// support, and the receipt is an evidence record so that the decision
 /// travels with the proposal and is closure-checked like any other
 /// reference.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -556,6 +638,7 @@ pub struct ReviewerReceipt {
 /// is no way to spell "promoted" without naming a reviewer, a time, a
 /// reason and a receipt record. That is the difference between a
 /// trusted human action and a boolean a model can set.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -604,7 +687,16 @@ impl ProposalStatus {
     }
 }
 
-/// One immutable revision of a relationship proposal.
+/// One immutable revision of a relationship proposal (v0.5): what a
+/// reconnaissance run proposed about a source, the measurement behind
+/// it, the probes that took it, and where it stands. `status` is a
+/// flattened tag: `quarantined_hypothesis` and `refuted` carry `reason`,
+/// `promoted_by_reviewer` carries `receipt`, `supported` carries neither
+/// — and a `supported` proposal's own measurement MUST clear its own
+/// `minSupport` (SPEC.md §5.3). Every id it references MUST resolve
+/// inside the same file, and a previous revision MUST precede its
+/// successor. Recording a proposal never publishes it into a mapping.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

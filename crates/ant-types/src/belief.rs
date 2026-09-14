@@ -47,12 +47,14 @@ use crate::observation::ObservationId;
 
 /// Stable identifier for a belief — server-generated UUID. Every
 /// version of a (subject, predicate) belief has its own distinct id.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BeliefId(pub String);
 
 /// One version of an inferred fact about a subject. The payload of a
 /// `belief` record.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Belief {
     /// Server-assigned. Unique per version.

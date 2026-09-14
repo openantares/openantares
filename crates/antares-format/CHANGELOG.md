@@ -5,6 +5,14 @@ a record kind is a crate MINOR here: `AntRecord` is exhaustively matched
 by consumers (this repository's own CLI needed a new arm), and `Counts`
 gains a field. See `ant-types/CHANGELOG.md` for the train rule.
 
+## 0.3.1 — 2026-09-14 — format 0.5, schema generated from the types
+
+- `schemars` feature and `examples/gen_schema.rs`: generates
+  `openantares/schema/ant.schema.json` and the marked regions of both
+  reference bindings from the Rust types; CI regenerates and diffs.
+- `FORMAT_NAME` (`"antares"`), the manifest tag the reader checks;
+  `DATA_KIND_COUNT_KEYS`, the trailer key per data kind.
+
 ## 0.3.0 — 2026-09-14 — reads and writes format 0.5
 
 - `AntRecord::RelationshipProposal { data: Box<RelationshipProposal> }`,

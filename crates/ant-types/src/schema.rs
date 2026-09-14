@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{Namespace, TypeName};
 
 /// OpenSPG type kind, serialized in SCREAMING_SNAKE_CASE on the wire.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SpgTypeKind {
@@ -26,6 +27,7 @@ pub enum SpgTypeKind {
 }
 
 /// How a property is indexed for retrieval.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum IndexKind {
@@ -42,6 +44,7 @@ pub enum IndexKind {
 /// The names accepted on the wire are wider than the variants (see
 /// [`ValueType::from_object_type_name`]); the variants are the
 /// canonical set.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueType {
     /// Free-form text.
@@ -139,6 +142,7 @@ impl ValueType {
 }
 
 /// A property declaration on a [`SchemaType`].
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PropertyDef {
     /// Property name as it appears on records.
@@ -153,6 +157,7 @@ pub struct PropertyDef {
 }
 
 /// A relation (edge type) declaration on a [`SchemaType`].
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelationDef {
     /// Relation name as it appears on edges.
@@ -179,6 +184,7 @@ impl RelationDef {
 /// One declared type: kind, qualified name, properties, relations.
 ///
 /// This is the payload of a `schema_type` record in a `.ant` file.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaType {
     /// What kind of OpenSPG type this is.

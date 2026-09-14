@@ -8,6 +8,17 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.3.1 — 2026-09-14 — format 0.5, schema generated from the types
+
+- `schemars` feature: `JsonSchema` derives on every record type, so the
+  published `ant.schema.json` is generated from these types. Off by
+  default, like `utoipa`.
+- `SamplingMethod::ALL`, `SamplingMethod::wire_name`,
+  `SamplingMethod::field_rule` and `SamplingFieldRule`: the presence rule
+  per sampling method, which `Sampling::validate` now applies and the
+  schema generator publishes as `if`/`then`. Validation behaviour is
+  unchanged.
+
 ## 0.3.0 — 2026-09-14 — format 0.5
 
 - New module `proposal`: `RelationshipProposal` — what a reconciliation

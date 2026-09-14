@@ -12,6 +12,7 @@ pub use crate::property::PropertyValue;
 
 /// A graph node: business id, display name, qualified type label,
 /// and typed properties. The payload of a `vertex` record.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Vertex {
     /// Business id, unique within the type (e.g. `deal_1`).
@@ -26,6 +27,7 @@ pub struct Vertex {
 
 /// A directed, labeled edge between two vertices, with optional
 /// bitemporal validity. The payload of an `edge` record.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
     /// Edge id, unique within the scope.

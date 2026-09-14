@@ -1,6 +1,6 @@
 [package]
 name = "antares-format"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "Open Antares format (.ant): zstd-framed NDJSON container for graph + evidence + belief + contradiction-case exchange"
 readme = "README.md"
@@ -23,13 +23,29 @@ missing_docs = "deny"
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.3.0" }
+ant-types = { path = "../ant-types", version = "0.3.1" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 zstd = "0.13"
 sha2 = "0.10"
+
+[features]
+default = []
+# Enables the schema generator (`examples/gen_schema.rs`), which derives
+# `openantares/schema/ant.schema.json` and the mechanical parts of both
+# reference bindings from the Rust types. CI regenerates and diffs.
+schemars = ["dep:schemars", "ant-types/schemars"]
+
+[dependencies.schemars]
+version = "1"
+optional = true
+features = ["chrono04"]
+
+[[example]]
+name = "gen_schema"
+required-features = ["schemars"]
 
 [dev-dependencies]
 # For the conformance golden generator only (example).

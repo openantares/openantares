@@ -308,6 +308,27 @@ impl<'de> Deserialize<'de> for Decimal {
     }
 }
 
+/// The schema is the wire contract stated above: a canonical decimal
+/// STRING, never a JSON number. Kept beside `Serialize` so the two cannot
+/// drift apart — `gen_schema` publishes exactly this.
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Decimal {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Decimal".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$"
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

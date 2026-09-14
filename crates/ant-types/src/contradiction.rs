@@ -38,6 +38,7 @@ use crate::evidence::EvidenceId;
 use crate::ids::{ProjectId, TenantId};
 
 /// The stable identity every revision of one case shares.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -45,6 +46,7 @@ use crate::ids::{ProjectId, TenantId};
 pub struct ContradictionCaseId(pub String);
 
 /// The identity of ONE immutable revision of a case. Unique per record.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -52,6 +54,7 @@ pub struct ContradictionCaseId(pub String);
 pub struct CaseRevisionId(pub String);
 
 /// What the compared evidence says. Independent of impact and workflow.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,6 +73,7 @@ pub enum EpistemicState {
 /// What it would cost if the incompatibility is real. Independent of
 /// the epistemic answer: a harmful case can be uncertain, a settled
 /// incompatibility can be alignment-only.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -83,6 +87,7 @@ pub enum BusinessImpact {
 }
 
 /// Where the work stands. Independent of the other two families.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,6 +109,7 @@ pub enum WorkflowState {
 }
 
 /// Which plane a compared claim lives on.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +125,7 @@ pub enum ClaimKind {
 /// A position inside an evidence record's content. Every field is
 /// optional so a pointer can name a character span, a byte span, a
 /// JSON path into structured content, or any combination.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +148,7 @@ pub struct SourcePointer {
 }
 
 /// One exact claim revision the case compares.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +168,7 @@ pub struct ClaimRef {
 }
 
 /// A source position the case relies on beyond the claims themselves.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,6 +182,7 @@ pub struct EvidenceRef {
 
 /// A measured value the comparator used — the two numbers compared, a
 /// distance, a tolerance — referenced back to where it was read.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,6 +205,7 @@ pub struct MeasurementRef {
 /// Who or what produced this comparison, pinned to versions and to the
 /// snapshot it ran against, so the same question can be re-asked
 /// against the same inputs.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +234,7 @@ pub struct ComparatorIdentity {
 /// How a piece of material relates to the sources already in play. A
 /// forwarded copy of a source is NOT an independent witness to it;
 /// counting it as one is how two sources become "confirmed by three".
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -241,7 +253,10 @@ pub enum SourceDependency {
     },
 }
 
-/// Material that supports or refutes the incompatibility.
+/// Material that supports or refutes the incompatibility, with its
+/// source dependency: a forwarded copy or a derivation is not an
+/// independent witness of the source it names in `of`.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,6 +273,7 @@ pub struct Material {
 /// Where the compared claims occur in a vault, and under what
 /// conditions the occurrence applies. A reference: the vault item is
 /// not copied here.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -278,7 +294,12 @@ pub struct VaultOccurrence {
     pub conditions: Vec<String>,
 }
 
-/// One immutable revision of a contradiction case.
+/// One immutable revision of a contradiction case (v0.4): two or more
+/// exact claim revisions compared, with epistemic, business-impact and
+/// workflow state kept separate. Every id it references MUST resolve
+/// inside the same file, and a previous revision MUST precede its
+/// successor (SPEC.md §5.2).
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,6 +1,6 @@
 [package]
 name = "openantares"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "OpenAntares CLI: validate and inspect .ant interchange files"
 readme = "README.md"
@@ -16,4 +16,4 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-antares-format = { path = "../antares-format", version = "0.3.0" }
+antares-format = { path = "../antares-format", version = "0.3.1" }

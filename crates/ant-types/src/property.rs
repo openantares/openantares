@@ -576,6 +576,144 @@ impl<'s> utoipa::ToSchema<'s> for PropertyValue {
     }
 }
 
+/// The published schema for a property value, kept beside the
+/// `Serialize` impl above so the envelope grammar has ONE home. The bare
+/// forms are the original v0.2 encoding; the tagged envelopes carry the
+/// SQL types that are otherwise indistinguishable from strings. An
+/// object is an envelope ONLY when it has exactly the keys `$ant` and
+/// `v` and `$ant` names a known type; any other object is an ordinary
+/// JSON document value.
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for PropertyValue {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "propertyValue".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let envelope = generator.subschema_for::<PropertyEnvelope>();
+        schemars::json_schema!({
+            "title": "PropertyValue",
+            "description": "A typed property value. The five bare JSON forms are the original v0.2 encoding and are unchanged. The tagged envelopes were added in v0.3 to carry the SQL types, which are otherwise indistinguishable from strings. An object is an envelope ONLY when it has exactly the keys `$ant` and `v` and `$ant` names a known type; any other object is an ordinary JSON document value.",
+            "oneOf": [
+                { "type": "null" },
+                { "type": "boolean" },
+                { "type": "number", "description": "BIGINT or DOUBLE PRECISION." },
+                { "type": "string", "description": "TEXT." },
+                envelope.clone(),
+                {
+                    "type": "object",
+                    "description": "JSON/JSONB document value. Excludes the envelope shape so exactly one arm matches: an object that IS a well-formed envelope is the typed value, not a document.",
+                    "not": envelope
+                },
+                { "type": "array", "description": "Untyped JSON array." }
+            ]
+        })
+    }
+}
+
+/// The `{"$ant": <type>, "v": <payload>}` envelope, one arm per SQL type
+/// the writer emits. A new `PropertyValue` variant that serializes as an
+/// envelope must add its arm here; `envelope_arms_cover_every_tag` fails
+/// until it does.
+#[cfg(feature = "schemars")]
+struct PropertyEnvelope;
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for PropertyEnvelope {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "propertyEnvelope".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let value = generator.subschema_for::<PropertyValue>();
+        let arm = |tag: &str, description: &str, payload: serde_json::Value| {
+            serde_json::json!({
+                "type": "object",
+                "description": description,
+                "required": [TAG, VAL],
+                "additionalProperties": false,
+                "properties": { TAG: { "const": tag }, VAL: payload }
+            })
+        };
+        schemars::json_schema!({
+            "title": "PropertyEnvelope",
+            "description": "A v0.3 tagged value carrying a SQL type.",
+            "oneOf": [
+                arm("decimal", "DECIMAL/NUMERIC. A canonical decimal STRING, never a JSON number: a JSON number is parsed as an IEEE double by most implementations, which silently rounds money past ~15 significant digits. Trailing fraction zeros are significant (the declared scale).",
+                    serde_json::json!({ "type": "string", "pattern": "^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$" })),
+                arm("date", "DATE, YYYY-MM-DD.", serde_json::json!({ "type": "string", "format": "date" })),
+                arm("time", "TIME, HH:MM:SS[.ffffff].", serde_json::json!({ "type": "string", "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?$" })),
+                arm("timestamp", "TIMESTAMP WITH TIME ZONE, RFC3339. The UTC offset is PART OF THE VALUE and must be preserved verbatim; normalizing to Z loses it.", serde_json::json!({ "type": "string", "format": "date-time" })),
+                arm("uuid", "UUID.", serde_json::json!({ "type": "string", "format": "uuid" })),
+                arm("bytes", "BLOB/BYTEA, base64 (standard alphabet, padded).", serde_json::json!({ "type": "string", "contentEncoding": "base64" })),
+                arm("int32", "INT.", serde_json::json!({ "type": "integer", "minimum": -2147483648i64, "maximum": 2147483647i64 })),
+                arm("int16", "SMALLINT.", serde_json::json!({ "type": "integer", "minimum": -32768, "maximum": 32767 })),
+                arm("array", "SQL array. Elements are themselves property values, so element types are preserved.", serde_json::json!({ "type": "array", "items": value }))
+            ]
+        })
+    }
+}
+
+#[cfg(all(test, feature = "schemars"))]
+mod schema_tests {
+    use super::*;
+
+    /// Every variant that serializes as an envelope has an arm in the
+    /// published schema, and no arm names a tag the writer never emits.
+    #[test]
+    fn envelope_arms_cover_every_tag() {
+        let one_of_each: Vec<PropertyValue> = vec![
+            PropertyValue::Int32(1),
+            PropertyValue::Int16(1),
+            PropertyValue::Decimal(Decimal::parse("1.10").unwrap()),
+            PropertyValue::Date(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
+            PropertyValue::Time(NaiveTime::from_hms_opt(1, 2, 3).unwrap()),
+            PropertyValue::Timestamp(
+                DateTime::parse_from_rfc3339("2026-01-02T03:04:05+02:00").unwrap(),
+            ),
+            PropertyValue::Uuid(uuid::Uuid::nil()),
+            PropertyValue::Bytes(vec![1]),
+            PropertyValue::Array(vec![]),
+        ];
+        // Exhaustive on purpose: adding a variant fails to compile here
+        // until it is classified as bare or enveloped.
+        let mut emitted: Vec<String> = one_of_each
+            .iter()
+            .map(|v| match v {
+                PropertyValue::Null
+                | PropertyValue::Bool(_)
+                | PropertyValue::Long(_)
+                | PropertyValue::Float(_)
+                | PropertyValue::Text(_)
+                | PropertyValue::Json(_) => unreachable!("bare forms are not enveloped"),
+                PropertyValue::Int32(_)
+                | PropertyValue::Int16(_)
+                | PropertyValue::Decimal(_)
+                | PropertyValue::Date(_)
+                | PropertyValue::Time(_)
+                | PropertyValue::Timestamp(_)
+                | PropertyValue::Uuid(_)
+                | PropertyValue::Bytes(_)
+                | PropertyValue::Array(_) => serde_json::to_value(v).unwrap()[TAG]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            })
+            .collect();
+        emitted.sort();
+        let schema = schemars::schema_for!(PropertyEnvelope);
+        let json = serde_json::to_value(&schema).unwrap();
+        let mut arms: Vec<String> = json["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["properties"][TAG]["const"].as_str().unwrap().to_string())
+            .collect();
+        arms.sort();
+        assert_eq!(arms, emitted, "schema arms vs tags the writer emits");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

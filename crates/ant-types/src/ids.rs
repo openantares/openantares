@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct TenantId(pub u64);
 
@@ -26,6 +27,7 @@ impl<'s> utoipa::ToSchema<'s> for TenantId {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
 )]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(transparent)]
 pub struct ProjectId(pub u64);
 
@@ -51,11 +53,13 @@ fn transparent_u64_schema(description: &str) -> utoipa::openapi::RefOr<utoipa::o
 
 /// Project namespace (e.g. "Antares"). Prepended to all type names at the
 /// SPG layer (`Antares.Deal`).
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Namespace(pub String);
 
 /// Namespace-qualified SPG type name, e.g. `Antares.Deal` or `Antares.Chunk`.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TypeName(pub String);
@@ -73,11 +77,13 @@ impl TypeName {
 }
 
 /// Vertex business id (the `id` field on the wire, e.g. "deal_hooli_001").
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct VertexId(pub String);
 
 /// Edge id (assigned by the caller in `writerGraph`, e.g. "e1").
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EdgeId(pub String);

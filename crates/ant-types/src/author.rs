@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Stable identifier for a user.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 pub struct UserId(pub String);
 
 /// Stable identifier for a token record.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -26,6 +28,7 @@ pub struct TokenId(pub String);
 
 /// Token subject class. Lets a consumer tell "a person wrote this in
 /// the client" from "a service connector wrote this".
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,13 +41,15 @@ pub enum SubjectType {
     Desktop,
 }
 
-/// Per-record authorship stamp.
+/// Per-record authorship stamp: advisory provenance, carried when known
+/// and NEVER used to decide a conflict.
 ///
 /// Carried as `Option<AuthorStamp>` on `Observation`, `Belief` and
 /// `Evidence` so "whose call produced this insight" survives an export,
 /// even though every team member writes into the same tenant-scoped
 /// store. `None` for records written before authorship existed and for
 /// anonymous compat-mode calls.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

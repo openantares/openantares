@@ -23,6 +23,7 @@ use crate::evidence::EvidenceId;
 use crate::ids::{ProjectId, TenantId, VertexId};
 
 /// Stable identifier for an observation.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ObservationId(pub String);
@@ -33,6 +34,7 @@ pub struct ObservationId(pub String);
 /// Re-submitting identical content under the same id is a no-op
 /// (idempotent). Re-submitting different content under the same id is
 /// a conflict.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Observation {
     /// Observation id, unique within the scope.

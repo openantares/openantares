@@ -251,6 +251,7 @@ pub enum AntError {
 pub use ant_types::Edge;
 
 /// A vector document as exported (mirrors the vector store's doc).
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VectorRecord {
@@ -274,10 +275,12 @@ pub struct VectorRecord {
 
 /// The first record of every stream: what this file is, which scope
 /// it came from, and what it claims to contain.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
     /// Always "antares" — belt for the zstd-magic braces.
+    #[cfg_attr(feature = "schemars", schemars(schema_with = "format_tag_schema"))]
     pub format: String,
     /// `MAJOR.MINOR` version of this container layout.
     pub version: String,
@@ -299,6 +302,7 @@ pub struct Manifest {
 
 /// Per-kind record tallies, carried in the trailer and checked by the
 /// reader against what it actually saw.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Counts {
@@ -316,19 +320,24 @@ pub struct Counts {
     pub beliefs: u64,
     /// `vector` records.
     pub vectors: u64,
-    /// `vertex_tombstone` records. Added in v0.2; `#[serde(default)]`
-    /// means a v0.1 trailer still deserializes with these at zero.
+    /// `vertex_tombstone` records. Added in v0.2. Absent in a v0.1
+    /// trailer, where it means zero — readers MUST default it rather than
+    /// reject the older file.
     #[serde(default)]
     pub vertex_tombstones: u64,
-    /// `edge_tombstone` records. Added in v0.2.
+    /// `edge_tombstone` records. Added in v0.2. Absent in a v0.1 trailer,
+    /// where it means zero — readers MUST default it rather than reject
+    /// the older file.
     #[serde(default)]
     pub edge_tombstones: u64,
-    /// `contradiction_case` records. Added in v0.4; defaults to zero in
-    /// an older trailer, and an older reader ignores the key.
+    /// `contradiction_case` records. Added in v0.4. Absent in a trailer
+    /// written before v0.4, where it means zero — readers MUST default it
+    /// rather than reject the older file; an older reader ignores the key.
     #[serde(default)]
     pub contradiction_cases: u64,
-    /// `relationship_proposal` records. Added in v0.5; defaults to zero
-    /// in an older trailer, and an older reader ignores the key.
+    /// `relationship_proposal` records. Added in v0.5. Absent in a trailer
+    /// written before v0.5, where it means zero — readers MUST default it
+    /// rather than reject the older file; an older reader ignores the key.
     #[serde(default)]
     pub relationship_proposals: u64,
 }
@@ -368,6 +377,7 @@ pub struct Counts {
 ///   on the same clock the rest of the store already uses.
 /// * Ties (equal timestamps) → the **tombstone wins**, so a delete is
 ///   not lost to clock granularity.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tombstone {
@@ -382,7 +392,43 @@ pub struct Tombstone {
     pub author: Option<ant_types::AuthorStamp>,
 }
 
+/// The manifest's `format` tag. The reader refuses anything else, and
+/// the published schema states it as a constant rather than `string`.
+pub const FORMAT_NAME: &str = "antares";
+
+#[cfg(feature = "schemars")]
+fn format_tag_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "const": FORMAT_NAME })
+}
+
+/// A trailer hash is 64 lowercase hex digits — the reader compares it to
+/// its own digest, and the schema states the shape.
+#[cfg(feature = "schemars")]
+fn sha256_hex_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "type": "string", "pattern": "^[0-9a-f]{64}$" })
+}
+
+/// The trailer key each data kind is tallied under — `vertex` records
+/// under `vertices`, and so on. The reader's increments and the reference
+/// bindings' count maps are both instances of this table; the schema
+/// generator publishes it, and `data_kind_count_keys_cover_the_types`
+/// fails when a record kind or a `Counts` field is missing from it.
+pub const DATA_KIND_COUNT_KEYS: &[(&str, &str)] = &[
+    ("schema_type", "schemaTypes"),
+    ("vertex", "vertices"),
+    ("edge", "edges"),
+    ("observation", "observations"),
+    ("evidence", "evidence"),
+    ("belief", "beliefs"),
+    ("vector", "vectors"),
+    ("vertex_tombstone", "vertexTombstones"),
+    ("edge_tombstone", "edgeTombstones"),
+    ("contradiction_case", "contradictionCases"),
+    ("relationship_proposal", "relationshipProposals"),
+];
+
 /// One record in the stream.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AntRecord {
@@ -423,28 +469,36 @@ pub enum AntRecord {
         /// The embedding document.
         data: VectorRecord,
     },
-    /// Deletion of a vertex. Cascades to its edges on import, exactly
-    /// as a live delete does.
+    /// Deletion of a vertex (v0.2), carried so a re-import propagates the
+    /// deletion instead of leaving the record alive at the destination
+    /// forever. Cascades to its edges on import, exactly as a live delete
+    /// does. Only the vertex and edge planes may be tombstoned:
+    /// observations are append-only, evidence is cited by other records,
+    /// and beliefs are derived state.
     VertexTombstone {
         /// The deletion.
         data: Tombstone,
     },
-    /// Deletion of an edge.
+    /// Deletion of an edge (v0.2), carried so a re-import propagates the
+    /// deletion instead of leaving the record alive at the destination
+    /// forever. Only the vertex and edge planes may be tombstoned:
+    /// observations are append-only, evidence is cited by other records,
+    /// and beliefs are derived state.
     EdgeTombstone {
         /// The deletion.
         data: Tombstone,
     },
-    /// One immutable revision of a contradiction case (v0.4). Its
-    /// references must resolve inside the file — see the module docs.
-    /// Boxed: a case carries several reference lists and would
-    /// otherwise make every record slot the size of the largest case.
+    /// One immutable revision of a contradiction case (v0.4). Every id it
+    /// references MUST resolve inside the same file (SPEC.md §5.2).
+    // Boxed: a case carries several reference lists and would otherwise
+    // make every record slot the size of the largest case.
     ContradictionCase {
         /// The revision.
         data: Box<ContradictionCase>,
     },
-    /// One immutable revision of a relationship proposal (v0.5). Its
-    /// references must resolve inside the file — see the module docs.
-    /// Boxed for the same reason as a case.
+    /// One immutable revision of a relationship proposal (v0.5). Every id
+    /// it references MUST resolve inside the same file (SPEC.md §5.3).
+    // Boxed for the same reason as a case.
     RelationshipProposal {
         /// The revision.
         data: Box<RelationshipProposal>,
@@ -455,6 +509,7 @@ pub enum AntRecord {
         /// Per-kind record tallies.
         counts: Counts,
         /// Hex sha256 over every preceding uncompressed line.
+        #[cfg_attr(feature = "schemars", schemars(schema_with = "sha256_hex_schema"))]
         sha256: String,
     },
 }
@@ -677,7 +732,7 @@ impl<R: Read> AntReader<R> {
         let AntRecord::Manifest(manifest) = rec else {
             return Err(AntError::NotAnt("first record is not a manifest".into()));
         };
-        if manifest.format != "antares" {
+        if manifest.format != FORMAT_NAME {
             return Err(AntError::NotAnt(format!("format `{}`", manifest.format)));
         }
         // Compatibility policy (see `FormatVersion`): same major reads,
@@ -1067,5 +1122,56 @@ mod tests {
             Err(AntError::Version(_))
         ));
         assert!(AntReader::new(&b"not zstd at all"[..]).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "schemars"))]
+mod schema_facts {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn root(schema: schemars::Schema) -> serde_json::Value {
+        serde_json::to_value(schema).unwrap()
+    }
+
+    /// Every data kind the record enum declares has a count key, every
+    /// `Counts` field is some kind's tally, and nothing is listed twice.
+    #[test]
+    fn data_kind_count_keys_cover_the_types() {
+        let record = root(schemars::schema_for!(AntRecord));
+        let kinds: BTreeSet<String> = record["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|arm| {
+                arm["properties"]["kind"]["const"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .filter(|k| k != "manifest" && k != "trailer")
+            .collect();
+        let counts = root(schemars::schema_for!(Counts));
+        let fields: BTreeSet<String> = counts["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        let table_kinds: BTreeSet<String> = DATA_KIND_COUNT_KEYS
+            .iter()
+            .map(|(k, _)| k.to_string())
+            .collect();
+        let table_keys: BTreeSet<String> = DATA_KIND_COUNT_KEYS
+            .iter()
+            .map(|(_, v)| v.to_string())
+            .collect();
+        assert_eq!(table_kinds, kinds, "data kinds vs DATA_KIND_COUNT_KEYS");
+        assert_eq!(table_keys, fields, "Counts fields vs DATA_KIND_COUNT_KEYS");
+        assert_eq!(
+            DATA_KIND_COUNT_KEYS.len(),
+            kinds.len(),
+            "one entry per kind"
+        );
     }
 }

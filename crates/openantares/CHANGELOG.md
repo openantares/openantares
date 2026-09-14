@@ -3,6 +3,10 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.3.1 — 2026-09-14 — format 0.5, schema generated from the types
+
+- No CLI change. Builds against the `Unreleased` crates above.
+
 ## 0.3.0 — 2026-09-14 — format 0.5
 
 - `info` tallies and prints `relationship proposals`.

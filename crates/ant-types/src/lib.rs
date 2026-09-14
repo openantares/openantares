@@ -57,7 +57,7 @@ pub use observation::{Observation, ObservationId};
 pub use proposal::{
     CastTarget, Normalization, NormalizationOp, ProbeRef, ProposalOrigin, ProposalReferences,
     ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,
-    RelationshipProposalId, ReviewerReceipt, Sampling, SamplingMethod, SourceManifestRef,
-    SupportMethod, SUPPORT_CONTRACT_VERSION,
+    RelationshipProposalId, ReviewerReceipt, Sampling, SamplingFieldRule, SamplingMethod,
+    SourceManifestRef, SupportMethod, SUPPORT_CONTRACT_VERSION,
 };
 pub use schema::*;
