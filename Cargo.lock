@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "ant-types"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "antares-format"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "ant-types",
  "chrono",
@@ -300,7 +300,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openantares"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "antares-format",
 ]
