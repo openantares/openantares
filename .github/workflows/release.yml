@@ -79,10 +79,13 @@ jobs:
       # path allows publishing by hand in dependency order and tagging after,
       # and a re-run of this workflow must not go red on a version that is
       # simply already there. crates.io is immutable, so "exists" is final.
+      # The probe MUST send a User-Agent: crates.io answers 403 without one,
+      # which would read as "not published" and fall through to a publish
+      # that then fails on the existing version.
       - name: ant-types
         run: |
           v="${GITHUB_REF_NAME#v}"
-          if curl -sf "https://crates.io/api/v1/crates/ant-types/$v" -o /dev/null; then
+          if curl -sf -A "openantares-release (github-actions; $GITHUB_REPOSITORY)" "https://crates.io/api/v1/crates/ant-types/$v" -o /dev/null; then
             echo "ant-types $v is already on crates.io — skipping"
           else
             cargo publish -p ant-types
@@ -92,7 +95,7 @@ jobs:
       - name: antares-format
         run: |
           v="${GITHUB_REF_NAME#v}"
-          if curl -sf "https://crates.io/api/v1/crates/antares-format/$v" -o /dev/null; then
+          if curl -sf -A "openantares-release (github-actions; $GITHUB_REPOSITORY)" "https://crates.io/api/v1/crates/antares-format/$v" -o /dev/null; then
             echo "antares-format $v is already on crates.io — skipping"
           else
             cargo publish -p antares-format
@@ -102,7 +105,7 @@ jobs:
       - name: openantares
         run: |
           v="${GITHUB_REF_NAME#v}"
-          if curl -sf "https://crates.io/api/v1/crates/openantares/$v" -o /dev/null; then
+          if curl -sf -A "openantares-release (github-actions; $GITHUB_REPOSITORY)" "https://crates.io/api/v1/crates/openantares/$v" -o /dev/null; then
             echo "openantares $v is already on crates.io — skipping"
           else
             cargo publish -p openantares
