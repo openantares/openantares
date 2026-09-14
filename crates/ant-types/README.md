@@ -10,6 +10,9 @@ vocabulary that appears inside a `.ant` file, and nothing else.
 - **Evidence** — the source material observations and edges cite, with
   span offsets into the source.
 - **Beliefs** — versioned inferred state derived from observations.
+- **Contradiction cases** — immutable revisions comparing two or more
+  exact claim revisions, carrying references (never copies) and three
+  independent states: epistemic, business impact, workflow (format 0.4).
 - **Schema** — OpenSPG-compatible type declarations.
 - **Authorship** — the provenance stamp records can carry.
 

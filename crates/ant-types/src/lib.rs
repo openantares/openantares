@@ -8,6 +8,10 @@
 //! - [`observation`] — append-only, source-bound atomic facts.
 //! - [`evidence`] — the source material observations and edges cite.
 //! - [`belief`] — versioned inferred state derived from observations.
+//! - [`contradiction`] — cases comparing two or more exact claim
+//!   revisions, with three independent state families (v0.4).
+//! - [`proposal`] — relationship proposals: what the reconnaissance
+//!   loop proposed, what it measured, and what was decided (v0.5).
 //! - [`schema`] — OpenSPG-compatible type declarations.
 //! - [`author`] — the provenance stamp records can carry.
 //!
@@ -26,6 +30,7 @@
 
 pub mod author;
 pub mod belief;
+pub mod contradiction;
 pub mod decimal;
 pub mod error;
 pub mod evidence;
@@ -33,14 +38,26 @@ pub mod graph;
 pub mod ids;
 pub mod observation;
 pub mod property;
+pub mod proposal;
 pub mod schema;
 
 pub use author::{AuthorStamp, SubjectType, TokenId, UserId};
 pub use belief::{Belief, BeliefId};
+pub use contradiction::{
+    BusinessImpact, CaseReferences, CaseRevisionId, ClaimKind, ClaimRef, ComparatorIdentity,
+    ContradictionCase, ContradictionCaseId, EpistemicState, EvidenceRef, Material, MeasurementRef,
+    SourceDependency, SourcePointer, VaultOccurrence, WorkflowState,
+};
 pub use decimal::Decimal;
 pub use error::CoreError;
 pub use evidence::{Evidence, EvidenceId};
 pub use graph::{Edge, PropertyValue, Vertex};
 pub use ids::{EdgeId, Namespace, ProjectId, TenantId, TypeName, VertexId};
 pub use observation::{Observation, ObservationId};
+pub use proposal::{
+    CastTarget, Normalization, NormalizationOp, ProbeRef, ProposalOrigin, ProposalReferences,
+    ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,
+    RelationshipProposalId, ReviewerReceipt, Sampling, SamplingMethod, SourceManifestRef,
+    SupportMethod, SUPPORT_CONTRACT_VERSION,
+};
 pub use schema::*;

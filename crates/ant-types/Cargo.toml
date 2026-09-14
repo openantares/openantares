@@ -1,8 +1,8 @@
 [package]
 name = "ant-types"
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
-description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, schema"
+description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, contradiction case, schema"
 readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
@@ -10,6 +10,13 @@ repository = "https://github.com/openantares/openantares"
 # and antares-format are the subset published to openantares/ant, and
 # the public subset has to be coherently licensed on its own.
 license = "Apache-2.0"
+
+# docs.rs builds with every feature on, so the feature-gated derives
+# render in the reference; `docsrs` lets `#[cfg_attr(docsrs, ...)]`
+# annotations mark them, should any be added.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 # Registry dependents build with --cap-lints=allow, so deny only
 # gates this crate's own (and workspace) builds.

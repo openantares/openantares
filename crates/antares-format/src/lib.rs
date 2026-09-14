@@ -27,12 +27,49 @@
 //! {"kind":"evidence",    "data":{...}}
 //! {"kind":"belief",      "data":{...}}
 //! {"kind":"vector",      "data":{...}}
+//! {"kind":"vertex_tombstone", "data":{...}}          v0.2
+//! {"kind":"edge_tombstone",   "data":{...}}          v0.2
+//! {"kind":"contradiction_case", "data":{...}}        v0.4
+//! {"kind":"relationship_proposal", "data":{...}}     v0.5
 //! {"kind":"trailer", "counts":{...}, "sha256":"..."}   exactly one, last line
 //! ```
 //!
 //! - `data` payloads are the serde JSON of the corresponding
 //!   `ant-types` records (the same property encoding the wire and store
 //!   use).
+//!
+//! ## Contradiction cases (v0.4)
+//!
+//! A `contradiction_case` record is one immutable revision of a case
+//! comparing two or more exact claim revisions
+//! ([`ant_types::ContradictionCase`]). It carries REFERENCES — belief
+//! versions, observations, evidence positions, receipts — never copies,
+//! which is what makes closure checkable: an archive holding a case
+//! must hold every record the case references, and a closure
+//! verifier refuses one that does not, exactly as it refuses a
+//! dangling evidence id today. A case built from ids inside JSON
+//! metadata would have let a "valid" archive omit the very revisions it
+//! compares; a native kind cannot. Counted in the trailer as
+//! `contradictionCases`, which older readers default to zero and
+//! ignore when it is present (they skip the kind and hash it).
+//!
+//! ## Relationship proposals (v0.5)
+//!
+//! A `relationship_proposal` record is one immutable revision of a
+//! relationship the reconnaissance loop proposed
+//! ([`ant_types::RelationshipProposal`]): the join it proposes, the
+//! run and source manifest it was measured under, the measurement
+//! itself, where it stands — quarantined, supported, promoted by a
+//! reviewer, refuted — and REFERENCES to the findings it was drawn
+//! from, the SQL probes that measured it, and the reviewer's receipt
+//! when one promoted it. Like a case, it carries references and never
+//! copies, so an archive holding a proposal must hold every record it
+//! cites. Counted in the trailer as `relationshipProposals`, which
+//! older readers default to zero and ignore when present (they skip
+//! the kind and hash it).
+//!
+//! Recording a proposal never publishes it into a mapping: what an
+//! exporter may build edges from is a separate, reviewed decision.
 //!
 //! ## Property values (v0.3)
 //!
@@ -94,10 +131,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use ant_types::{Belief, Evidence, Observation, SchemaType, Vertex};
+use ant_types::{
+    Belief, ContradictionCase, Evidence, Observation, RelationshipProposal, SchemaType, Vertex,
+};
 
 /// The `MAJOR.MINOR` format version written into new manifests.
-pub const FORMAT_VERSION: &str = "0.3";
+pub const FORMAT_VERSION: &str = "0.5";
 /// Conventional file extension for the container.
 pub const EXTENSION: &str = "ant";
 
@@ -111,7 +150,7 @@ pub const SUPPORTED_FORMAT_VERSION: &str = FORMAT_VERSION;
 /// Major version this reader implements. See [`FormatVersion`].
 pub const FORMAT_MAJOR: u32 = 0;
 /// Minor version this reader implements.
-pub const FORMAT_MINOR: u32 = 3;
+pub const FORMAT_MINOR: u32 = 5;
 
 /// A parsed `MAJOR.MINOR` format version.
 ///
@@ -284,6 +323,14 @@ pub struct Counts {
     /// `edge_tombstone` records. Added in v0.2.
     #[serde(default)]
     pub edge_tombstones: u64,
+    /// `contradiction_case` records. Added in v0.4; defaults to zero in
+    /// an older trailer, and an older reader ignores the key.
+    #[serde(default)]
+    pub contradiction_cases: u64,
+    /// `relationship_proposal` records. Added in v0.5; defaults to zero
+    /// in an older trailer, and an older reader ignores the key.
+    #[serde(default)]
+    pub relationship_proposals: u64,
 }
 
 /// A deletion, carried so a re-import can propagate it.
@@ -386,6 +433,21 @@ pub enum AntRecord {
     EdgeTombstone {
         /// The deletion.
         data: Tombstone,
+    },
+    /// One immutable revision of a contradiction case (v0.4). Its
+    /// references must resolve inside the file — see the module docs.
+    /// Boxed: a case carries several reference lists and would
+    /// otherwise make every record slot the size of the largest case.
+    ContradictionCase {
+        /// The revision.
+        data: Box<ContradictionCase>,
+    },
+    /// One immutable revision of a relationship proposal (v0.5). Its
+    /// references must resolve inside the file — see the module docs.
+    /// Boxed for the same reason as a case.
+    RelationshipProposal {
+        /// The revision.
+        data: Box<RelationshipProposal>,
     },
     /// The stream footer: per-kind counts and the integrity hash.
     /// Exactly one, last line.
@@ -498,6 +560,8 @@ impl<W: Write> AntWriter<W> {
             AntRecord::Vector { .. } => self.counts.vectors += 1,
             AntRecord::VertexTombstone { .. } => self.counts.vertex_tombstones += 1,
             AntRecord::EdgeTombstone { .. } => self.counts.edge_tombstones += 1,
+            AntRecord::ContradictionCase { .. } => self.counts.contradiction_cases += 1,
+            AntRecord::RelationshipProposal { .. } => self.counts.relationship_proposals += 1,
         }
         self.write_record(&rec)
     }
@@ -698,6 +762,10 @@ impl<R: Read> AntReader<R> {
                         AntRecord::Vector { .. } => self.counts.vectors += 1,
                         AntRecord::VertexTombstone { .. } => self.counts.vertex_tombstones += 1,
                         AntRecord::EdgeTombstone { .. } => self.counts.edge_tombstones += 1,
+                        AntRecord::ContradictionCase { .. } => self.counts.contradiction_cases += 1,
+                        AntRecord::RelationshipProposal { .. } => {
+                            self.counts.relationship_proposals += 1
+                        }
                         AntRecord::Manifest(_) | AntRecord::Trailer { .. } => unreachable!(),
                     }
                     return Ok(Some(rec));
@@ -775,6 +843,57 @@ mod tests {
         }
     }
 
+    fn sample_case() -> ContradictionCase {
+        use ant_types::{
+            BusinessImpact, CaseRevisionId, ClaimKind, ClaimRef, ComparatorIdentity,
+            ContradictionCaseId, EpistemicState, WorkflowState,
+        };
+        ContradictionCase {
+            id: CaseRevisionId("case_1@1".into()),
+            case_id: ContradictionCaseId("case_1".into()),
+            previous_revision_id: None,
+            tenant_id: TenantId(1),
+            project_id: ProjectId(1),
+            family: "same_subject_numeric".into(),
+            claims: vec![
+                ClaimRef {
+                    kind: ClaimKind::Observation,
+                    id: "o1".into(),
+                    version: None,
+                    pointer: None,
+                },
+                ClaimRef {
+                    kind: ClaimKind::Belief,
+                    id: "b1".into(),
+                    version: Some(1),
+                    pointer: None,
+                },
+            ],
+            evidence: vec![],
+            measurements: vec![],
+            comparator: ComparatorIdentity {
+                comparator: "numeric_tolerance".into(),
+                comparator_version: "1.0".into(),
+                rule_id: None,
+                rule_version: None,
+                model: None,
+                model_version: None,
+                snapshot_id: Some("snap_1".into()),
+            },
+            supporting: vec![],
+            refuting: vec![],
+            vault_occurrences: vec![],
+            epistemic: EpistemicState::Incompatible,
+            impact: BusinessImpact::Unassessed,
+            workflow: WorkflowState::Open,
+            proposal_id: None,
+            review_receipts: vec![],
+            revised_at: "2026-09-10T00:00:00Z".parse().unwrap(),
+            author: None,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
     fn write_sample() -> Vec<u8> {
         let mut w = AntWriter::new(Vec::new(), manifest(), 0).unwrap();
         w.write(AntRecord::Vertex {
@@ -795,6 +914,15 @@ mod tests {
             },
         })
         .unwrap();
+        w.write(AntRecord::ContradictionCase {
+            data: Box::new(sample_case()),
+        })
+        .unwrap();
+        assert_eq!(
+            w.counts().contradiction_cases,
+            1,
+            "the writer tallies the kind"
+        );
         w.finish().unwrap()
     }
 
@@ -808,7 +936,14 @@ mod tests {
             got.push(rec);
         }
         assert!(r.verified, "trailer hash + counts verified");
-        assert_eq!(got.len(), 3);
+        assert_eq!(got.len(), 4);
+        assert_eq!(
+            got[3],
+            AntRecord::ContradictionCase {
+                data: Box::new(sample_case())
+            },
+            "a case revision survives the round trip intact"
+        );
         assert_eq!(
             got[0],
             AntRecord::Vertex {
@@ -880,6 +1015,45 @@ mod tests {
         }
         assert!(r.verified);
         assert_eq!(kinds, vec![true], "unknown kind skipped, vertex kept");
+    }
+
+    /// What keeps the v0.4 count key ADDITIVE: a reader that does not
+    /// know a kind skips its records and must also ignore the trailer
+    /// key that counts them. This is the v0.3 reader's situation with a
+    /// v0.4 file, played by this build against a key it does not know.
+    #[test]
+    fn a_trailer_count_key_this_reader_does_not_know_is_ignored() {
+        use sha2::{Digest, Sha256};
+        let m = serde_json::to_string(&AntRecord::Manifest(manifest())).unwrap();
+        let v = serde_json::to_string(&AntRecord::Vertex {
+            data: sample_vertex(),
+        })
+        .unwrap();
+        let unknown = r#"{"kind":"hologram","data":{"future":true}}"#;
+        let mut hasher = Sha256::new();
+        for line in [&m, &v, &unknown.to_string()] {
+            hasher.update(line.as_bytes());
+            hasher.update(b"\n");
+        }
+        // A trailer as a FUTURE writer would emit it: the kinds this
+        // build knows at their true counts, plus a key for the kind it
+        // skipped.
+        let trailer = format!(
+            r#"{{"kind":"trailer","counts":{{"schemaTypes":0,"vertices":1,"edges":0,"observations":0,"evidence":0,"beliefs":0,"vectors":0,"vertexTombstones":0,"edgeTombstones":0,"contradictionCases":0,"holograms":1}},"sha256":"{:x}"}}"#,
+            hasher.finalize()
+        );
+        let raw = format!("{m}\n{v}\n{unknown}\n{trailer}\n");
+        let compressed = zstd::stream::encode_all(raw.as_bytes(), 0).unwrap();
+        let mut r = AntReader::new(&compressed[..]).unwrap();
+        let mut n = 0;
+        while r.next_record().unwrap().is_some() {
+            n += 1;
+        }
+        assert!(
+            r.verified,
+            "an unknown count key must not fail verification, or every new kind is a breaking change"
+        );
+        assert_eq!(n, 1);
     }
 
     #[test]

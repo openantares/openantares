@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: openantares/ant
-          ref: v0.3.0
+          ref: v0.5.0
           path: format
       - uses: Swatinem/rust-cache@v2
 
@@ -74,16 +74,39 @@ jobs:
       # registry before the next resolves. Recent cargo waits for the index
       # itself; --no-verify is deliberately NOT used, so each crate is compiled
       # from its own tarball on the way out.
+      #
+      # A version already on the registry is skipped, not failed: the ship
+      # path allows publishing by hand in dependency order and tagging after,
+      # and a re-run of this workflow must not go red on a version that is
+      # simply already there. crates.io is immutable, so "exists" is final.
       - name: ant-types
-        run: cargo publish -p ant-types
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if curl -sf "https://crates.io/api/v1/crates/ant-types/$v" -o /dev/null; then
+            echo "ant-types $v is already on crates.io — skipping"
+          else
+            cargo publish -p ant-types
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: antares-format
-        run: cargo publish -p antares-format
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if curl -sf "https://crates.io/api/v1/crates/antares-format/$v" -o /dev/null; then
+            echo "antares-format $v is already on crates.io — skipping"
+          else
+            cargo publish -p antares-format
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: openantares
-        run: cargo publish -p openantares
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if curl -sf "https://crates.io/api/v1/crates/openantares/$v" -o /dev/null; then
+            echo "openantares $v is already on crates.io — skipping"
+          else
+            cargo publish -p openantares
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 

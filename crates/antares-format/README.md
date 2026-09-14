@@ -2,9 +2,9 @@
 
 Reader and writer for the Open Antares (`.ant`) container: a
 self-contained, compressed, streamable file for exchanging graph data,
-observations, evidence, beliefs, and embeddings.
+observations, evidence, beliefs, contradiction cases, and embeddings.
 
-This crate reads and writes `.ant` **format 0.3.x**
+This crate reads and writes `.ant` **format 0.4.x**
 (`SUPPORTED_FORMAT_VERSION`). Crate version and format version are
 formally independent.
 

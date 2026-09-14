@@ -1,12 +1,19 @@
 [package]
 name = "antares-format"
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
-description = "Open Antares format (.ant): zstd-framed NDJSON container for graph + evidence + belief exchange"
+description = "Open Antares format (.ant): zstd-framed NDJSON container for graph + evidence + belief + contradiction-case exchange"
 readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
 license = "Apache-2.0"
+
+# docs.rs builds with every feature on, so the feature-gated derives
+# render in the reference; `docsrs` lets `#[cfg_attr(docsrs, ...)]`
+# annotations mark them, should any be added.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 # Registry dependents build with --cap-lints=allow, so deny only
 # gates this crate's own (and workspace) builds.
@@ -16,7 +23,7 @@ missing_docs = "deny"
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.1.1" }
+ant-types = { path = "../ant-types", version = "0.3.0" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

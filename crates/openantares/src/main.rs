@@ -67,6 +67,8 @@ fn read_all(path: &str) -> Result<(Manifest, Counts, usize, bool), (u8, String)>
                     AntRecord::Vector { .. } => counts.vectors += 1,
                     AntRecord::VertexTombstone { .. } => counts.vertex_tombstones += 1,
                     AntRecord::EdgeTombstone { .. } => counts.edge_tombstones += 1,
+                    AntRecord::ContradictionCase { .. } => counts.contradiction_cases += 1,
+                    AntRecord::RelationshipProposal { .. } => counts.relationship_proposals += 1,
                     AntRecord::Manifest(_) | AntRecord::Trailer { .. } => {}
                 }
             }
@@ -151,4 +153,6 @@ fn print_counts(c: &Counts) {
     println!("  vectors:           {}", c.vectors);
     println!("  vertex tombstones: {}", c.vertex_tombstones);
     println!("  edge tombstones:   {}", c.edge_tombstones);
+    println!("  contradiction cases: {}", c.contradiction_cases);
+    println!("  relationship proposals: {}", c.relationship_proposals);
 }

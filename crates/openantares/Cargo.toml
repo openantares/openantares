@@ -1,6 +1,6 @@
 [package]
 name = "openantares"
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
 description = "OpenAntares CLI: validate and inspect .ant interchange files"
 readme = "README.md"
@@ -8,5 +8,12 @@ homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
 license = "Apache-2.0"
 
+# docs.rs builds with every feature on, so the feature-gated derives
+# render in the reference; `docsrs` lets `#[cfg_attr(docsrs, ...)]`
+# annotations mark them, should any be added.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-antares-format = { path = "../antares-format", version = "0.1.1" }
+antares-format = { path = "../antares-format", version = "0.3.0" }

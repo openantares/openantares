@@ -12,6 +12,8 @@ use crate::ids::{ProjectId, TenantId};
 
 /// Evidence identifier (newtype over String). Distinct from VertexId
 /// because evidence lives in its own storage plane.
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EvidenceId(pub String);

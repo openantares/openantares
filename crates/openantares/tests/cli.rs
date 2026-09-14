@@ -27,9 +27,26 @@ fn run(args: &[&str]) -> Output {
 
 #[test]
 fn no_args_is_usage_64() {
-    let out = run(&[]);
+    // In an empty directory, so that "did it write anything?" is a
+    // question with an exact answer: a bare invocation must leave the
+    // working directory as it found it (PRODUCT-232).
+    let dir = tempdir().join("bare-run");
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_openantares"))
+        .current_dir(&dir)
+        .output()
+        .expect("spawn openantares");
     assert_eq!(out.status.code(), Some(64), "stderr: {}", text(&out.stderr));
     assert!(text(&out.stderr).contains("usage:"));
+    assert!(
+        text(&out.stdout).is_empty(),
+        "usage for misuse goes to stderr"
+    );
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(left.is_empty(), "a bare run must create nothing: {left:?}");
 }
 
 #[test]
@@ -51,7 +68,7 @@ fn validate_ok_is_0_with_ok_line() {
     );
     let stdout = text(&out.stdout);
     assert!(stdout.contains(": OK"), "stdout: {stdout}");
-    assert!(stdout.contains("version=0.3"), "stdout: {stdout}");
+    assert!(stdout.contains("version=0.5"), "stdout: {stdout}");
 }
 
 #[test]
@@ -136,13 +153,15 @@ fn info_reports_manifest_and_counts_matching_expected_json() {
         "beliefs:           1",
         "vectors:           1",
         "vertex tombstones: 0",
+        "contradiction cases: 0",
+        "relationship proposals: 0",
     ] {
         assert!(
             needle_in(&stdout, needle),
             "missing `{needle}` in:\n{stdout}"
         );
     }
-    assert!(stdout.contains("0.3"), "format version shown: {stdout}");
+    assert!(stdout.contains("0.5"), "format version shown: {stdout}");
 }
 
 #[test]
