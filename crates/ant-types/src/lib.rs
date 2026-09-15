@@ -33,6 +33,7 @@ pub mod belief;
 pub mod contradiction;
 pub mod decimal;
 pub mod error;
+pub mod event_time;
 pub mod evidence;
 pub mod graph;
 pub mod ids;
@@ -50,6 +51,7 @@ pub use contradiction::{
 };
 pub use decimal::Decimal;
 pub use error::CoreError;
+pub use event_time::{EventTime, TimeBasis, UnknownTime};
 pub use evidence::{Evidence, EvidenceId};
 pub use graph::{Edge, PropertyValue, Vertex};
 pub use ids::{EdgeId, Namespace, ProjectId, TenantId, TypeName, VertexId};

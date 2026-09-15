@@ -15,10 +15,10 @@
 //! This module ships ONLY the observation plane; beliefs are their
 //! own record kind.
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::author::AuthorStamp;
+use crate::event_time::EventTime;
 use crate::evidence::EvidenceId;
 use crate::ids::{ProjectId, TenantId, VertexId};
 
@@ -77,10 +77,17 @@ pub struct Observation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub object_value: Option<serde_json::Value>,
 
-    /// Wall-clock time the underlying event happened.
-    pub observed_at: DateTime<Utc>,
-    /// Wall-clock time the extractor produced this observation.
-    pub extracted_at: DateTime<Utc>,
+    /// When the underlying event happened — the EVENT time. Either a
+    /// real instant or explicitly [`EventTime::Unknown`] with a reason;
+    /// a dateless original carries the reason and nothing ever
+    /// fabricates an instant for it (PRODUCT-231). Serializes as the
+    /// bare v0.5 timestamp string when known without a basis.
+    pub observed_at: EventTime,
+    /// When the extractor produced this observation — the PROVENANCE
+    /// time. Same shape; a producer may populate it from an extraction
+    /// receipt with a [`crate::TimeBasis`]. Explicitly unknown when the
+    /// producer recorded no such time.
+    pub extracted_at: EventTime,
 
     /// Confidence in `[0,1]`; `None` is treated as 1.0.
     #[serde(default, skip_serializing_if = "Option::is_none")]

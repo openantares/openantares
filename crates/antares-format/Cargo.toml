@@ -1,6 +1,6 @@
 [package]
 name = "antares-format"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "Open Antares format (.ant): zstd-framed NDJSON container for graph + evidence + belief + contradiction-case exchange"
 readme = "README.md"
@@ -23,7 +23,7 @@ missing_docs = "deny"
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.3.1" }
+ant-types = { path = "../ant-types", version = "0.4.0" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

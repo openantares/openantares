@@ -3,6 +3,12 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.4.0 — 2026-09-15 — format 0.6
+
+- No CLI change. Builds against the 0.4.0 crates above; `info` and
+  `validate` read a 0.6 archive, including an explicitly-unknown
+  observation time.
+
 ## 0.3.1 — 2026-09-14 — format 0.5, schema generated from the types
 
 - No CLI change. Builds against the `Unreleased` crates above.

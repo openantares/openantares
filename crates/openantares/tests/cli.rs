@@ -68,7 +68,10 @@ fn validate_ok_is_0_with_ok_line() {
     );
     let stdout = text(&out.stdout);
     assert!(stdout.contains(": OK"), "stdout: {stdout}");
-    assert!(stdout.contains("version=0.5"), "stdout: {stdout}");
+    assert!(
+        stdout.contains(&format!("version={}", antares_format::FORMAT_VERSION)),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -161,7 +164,10 @@ fn info_reports_manifest_and_counts_matching_expected_json() {
             "missing `{needle}` in:\n{stdout}"
         );
     }
-    assert!(stdout.contains("0.5"), "format version shown: {stdout}");
+    assert!(
+        stdout.contains(antares_format::FORMAT_VERSION),
+        "format version shown: {stdout}"
+    );
 }
 
 #[test]

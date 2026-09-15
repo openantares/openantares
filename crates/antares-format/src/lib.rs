@@ -71,6 +71,39 @@
 //! Recording a proposal never publishes it into a mapping: what an
 //! exporter may build edges from is a separate, reviewed decision.
 //!
+//! ## Explicitly-unknown observation time (v0.6)
+//!
+//! An observation's `observed_at` and `extracted_at` are no longer a
+//! bare instant. They are an [`ant_types::EventTime`]: either
+//! `Known { at, basis }` — an instant, optionally with the
+//! [`ant_types::TimeBasis`] the instant was drawn from — or
+//! `Unknown { reason }`, a first-class "this time is not known" that
+//! carries an [`ant_types::UnknownTime`] reason rather than a null or a
+//! fabricated epoch. A genuinely undated original is now representable
+//! end to end instead of being dropped, and a time-aware reader treats
+//! it AS unknown (it is on no timeline) rather than clamping it to the
+//! epoch or to now.
+//!
+//! The wire form is additive, so the common case is byte-identical to
+//! v0.5:
+//!
+//! ```text
+//! "2026-08-09T10:00:00Z"                       Known, no basis (v0.5-identical)
+//! {"known":{"at":"2026-08-09T10:00:00Z","basis":"source_record_time"}}
+//! {"unknown":{"reason":"no_source_time"}}
+//! ```
+//!
+//! A `Known` with no basis is the bare RFC3339 string every v0.5 file
+//! already wrote — no historical record is re-encoded and no basis is
+//! ever fabricated onto one. Only an observation that actually carries a
+//! basis or an unknown time takes one of the two object forms. This is a
+//! MINOR bump: a v0.6 reader reads every v0.5 file unchanged, and a v0.5
+//! reader reads the bare-string subset of a v0.6 file and errors only on
+//! a record that uses the new states — which is exactly what "the file
+//! is ahead of this reader" is there to signal. The vocabulary
+//! (`Known`/`Unknown`, the basis and reason names) is shared with the
+//! mining layer's `EventTime`, not a second dialect.
+//!
 //! ## Property values (v0.3)
 //!
 //! v0.2 carried property values as bare untagged JSON scalars:
@@ -136,7 +169,7 @@ use ant_types::{
 };
 
 /// The `MAJOR.MINOR` format version written into new manifests.
-pub const FORMAT_VERSION: &str = "0.5";
+pub const FORMAT_VERSION: &str = "0.6";
 /// Conventional file extension for the container.
 pub const EXTENSION: &str = "ant";
 
@@ -150,7 +183,7 @@ pub const SUPPORTED_FORMAT_VERSION: &str = FORMAT_VERSION;
 /// Major version this reader implements. See [`FormatVersion`].
 pub const FORMAT_MAJOR: u32 = 0;
 /// Minor version this reader implements.
-pub const FORMAT_MINOR: u32 = 5;
+pub const FORMAT_MINOR: u32 = 6;
 
 /// A parsed `MAJOR.MINOR` format version.
 ///
@@ -562,10 +595,26 @@ pub enum AntRecord {
 /// # }
 /// ```
 pub struct AntWriter<W: Write> {
-    enc: zstd::stream::write::Encoder<'static, W>,
+    enc: std::io::BufWriter<zstd::stream::write::Encoder<'static, W>>,
     hasher: Sha256,
     counts: Counts,
     finished: bool,
+}
+
+struct HashingWrite<'a, W> {
+    out: &'a mut W,
+    hasher: &'a mut Sha256,
+}
+
+impl<W: Write> Write for HashingWrite<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.out.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
+    }
 }
 
 impl<W: Write> AntWriter<W> {
@@ -575,7 +624,7 @@ impl<W: Write> AntWriter<W> {
     pub fn new(out: W, manifest: Manifest, level: i32) -> Result<Self, AntError> {
         let enc = zstd::stream::write::Encoder::new(out, level)?;
         let mut w = Self {
-            enc,
+            enc: std::io::BufWriter::with_capacity(64 * 1024, enc),
             hasher: Sha256::new(),
             counts: Counts::default(),
             finished: false,
@@ -584,14 +633,66 @@ impl<W: Write> AntWriter<W> {
         Ok(w)
     }
 
+    /// Write a manifest whose selection metadata is serialized incrementally.
+    /// This is the same wire format as `new`; large vault-reference maps may
+    /// come from a disk cursor instead of a `serde_json::Value` in memory.
+    /// `selection` replaces `manifest.selection`.
+    pub fn new_with_selection<S: Serialize>(
+        out: W,
+        manifest: &Manifest,
+        selection: &S,
+        level: i32,
+    ) -> Result<Self, AntError> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Header<'a, S> {
+            kind: &'static str,
+            format: &'a str,
+            version: &'a str,
+            tenant_id: u64,
+            project_id: u64,
+            selection: &'a S,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            created_at: &'a Option<chrono::DateTime<chrono::Utc>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            producer: &'a Option<String>,
+        }
+        let mut w = Self {
+            enc: std::io::BufWriter::with_capacity(
+                64 * 1024,
+                zstd::stream::write::Encoder::new(out, level)?,
+            ),
+            hasher: Sha256::new(),
+            counts: Counts::default(),
+            finished: false,
+        };
+        w.write_serialized(&Header {
+            kind: "manifest",
+            format: &manifest.format,
+            version: &manifest.version,
+            tenant_id: manifest.tenant_id,
+            project_id: manifest.project_id,
+            selection,
+            created_at: &manifest.created_at,
+            producer: &manifest.producer,
+        })?;
+        Ok(w)
+    }
+
     fn write_record(&mut self, rec: &AntRecord) -> Result<(), AntError> {
-        let mut line = serde_json::to_string(rec).map_err(|e| AntError::Json {
+        self.write_serialized(rec)
+    }
+
+    fn write_serialized(&mut self, value: &impl Serialize) -> Result<(), AntError> {
+        let mut out = HashingWrite {
+            out: &mut self.enc,
+            hasher: &mut self.hasher,
+        };
+        serde_json::to_writer(&mut out, value).map_err(|e| AntError::Json {
             line: 0,
             err: e.to_string(),
         })?;
-        line.push('\n');
-        self.hasher.update(line.as_bytes());
-        self.enc.write_all(line.as_bytes())?;
+        out.write_all(b"\n")?;
         Ok(())
     }
 
@@ -641,7 +742,11 @@ impl<W: Write> AntWriter<W> {
         line.push('\n');
         self.enc.write_all(line.as_bytes())?;
         self.finished = true;
-        Ok(self.enc.finish()?)
+        Ok(self
+            .enc
+            .into_inner()
+            .map_err(|e| e.into_error())?
+            .finish()?)
     }
 }
 
@@ -888,8 +993,8 @@ mod tests {
             predicate: "stage_change".into(),
             object_id: None,
             object_value: Some(serde_json::json!("proposal")),
-            observed_at: "2026-08-09T00:00:00Z".parse().unwrap(),
-            extracted_at: "2026-08-09T00:00:01Z".parse().unwrap(),
+            observed_at: ant_types::EventTime::known("2026-08-09T00:00:00Z".parse().unwrap()),
+            extracted_at: ant_types::EventTime::known("2026-08-09T00:00:01Z".parse().unwrap()),
             confidence: Some(0.9),
             evidence_ids: vec![],
             extractor_version: Some("test/1".into()),

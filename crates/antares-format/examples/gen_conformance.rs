@@ -157,8 +157,8 @@ fn basic() -> Vec<u8> {
         predicate: "stage_change".into(),
         object_id: None,
         object_value: Some(serde_json::json!("proposal")),
-        observed_at: "2026-08-09T10:00:00Z".parse().unwrap(),
-        extracted_at: "2026-08-09T10:00:01Z".parse().unwrap(),
+        observed_at: ant_types::EventTime::known("2026-08-09T10:00:00Z".parse().unwrap()),
+        extracted_at: ant_types::EventTime::known("2026-08-09T10:00:01Z".parse().unwrap()),
         confidence: Some(0.9),
         evidence_ids: vec![EvidenceId("ev_1".into())],
         extractor_version: Some("conformance/1".into()),
@@ -391,8 +391,8 @@ fn contradiction_cases() -> Vec<u8> {
         predicate: "headcount".into(),
         object_id: None,
         object_value: Some(serde_json::json!(value)),
-        observed_at: "2026-08-09T10:00:00Z".parse().unwrap(),
-        extracted_at: "2026-08-09T10:00:01Z".parse().unwrap(),
+        observed_at: ant_types::EventTime::known("2026-08-09T10:00:00Z".parse().unwrap()),
+        extracted_at: ant_types::EventTime::known("2026-08-09T10:00:01Z".parse().unwrap()),
         confidence: Some(0.9),
         evidence_ids: vec![EvidenceId(ev.into())],
         extractor_version: Some("conformance/1".into()),
@@ -891,10 +891,73 @@ fn relationship_proposals() -> Vec<u8> {
     w.finish().expect("finish")
 }
 
+/// v0.6 golden: explicitly-unknown observation time.
+///
+/// Two observations pin the whole additive contract in one file:
+///
+///   * `obs_undated` — a genuinely dateless original. Its EVENT time is
+///     `Unknown{no_source_time}` (never a fabricated instant), while its
+///     PROVENANCE time is `Known` WITH a basis (`source_record_time`)
+///     drawn from the extraction receipt. This is the record that could
+///     not exist before v0.6.
+///   * `obs_dated` — an ordinary dated observation whose `observed_at`
+///     and `extracted_at` are bare RFC3339 strings, byte-identical to
+///     v0.5. Pinning it here is the proof that the bump is additive: the
+///     common case did not move.
+fn unknown_time() -> Vec<u8> {
+    let undated = Observation {
+        id: ObservationId("obs_undated".into()),
+        tenant_id: TenantId(1),
+        project_id: ProjectId(1),
+        source_event_id: Some("filing-7".into()),
+        source_uri: Some("antares://filing/7".into()),
+        subject_id: Some(VertexId("deal_1".into())),
+        predicate: "headcount".into(),
+        object_id: None,
+        object_value: Some(serde_json::json!(1200)),
+        // Event time is genuinely unknown; nothing fabricates an instant.
+        observed_at: ant_types::EventTime::unknown(ant_types::UnknownTime::NoSourceTime),
+        // Provenance time is known and carries its basis from the receipt.
+        extracted_at: ant_types::EventTime::known_with(
+            "2026-08-09T10:00:01Z".parse().unwrap(),
+            ant_types::TimeBasis::SourceRecordTime,
+        ),
+        confidence: Some(0.9),
+        evidence_ids: vec![],
+        extractor_version: Some("conformance/1".into()),
+        metadata: serde_json::Value::Null,
+        author: None,
+    };
+    let dated = Observation {
+        id: ObservationId("obs_dated".into()),
+        tenant_id: TenantId(1),
+        project_id: ProjectId(1),
+        source_event_id: Some("mail-9".into()),
+        source_uri: Some("antares://mail/9".into()),
+        subject_id: Some(VertexId("deal_1".into())),
+        predicate: "stage_change".into(),
+        object_id: None,
+        object_value: Some(serde_json::json!("proposal")),
+        observed_at: ant_types::EventTime::known("2026-08-09T10:00:00Z".parse().unwrap()),
+        extracted_at: ant_types::EventTime::known("2026-08-09T10:00:01Z".parse().unwrap()),
+        confidence: Some(0.9),
+        evidence_ids: vec![],
+        extractor_version: Some("conformance/1".into()),
+        metadata: serde_json::Value::Null,
+        author: None,
+    };
+
+    let mut w = AntWriter::new(Vec::new(), manifest(), 0).expect("writer");
+    w.write(AntRecord::Observation { data: undated }).unwrap();
+    w.write(AntRecord::Observation { data: dated }).unwrap();
+    w.finish().expect("finish")
+}
+
 fn main() {
     let dir = out_dir();
     std::fs::create_dir_all(&dir).expect("mkdir golden");
     std::fs::write(dir.join("basic.ant"), basic()).expect("write basic.ant");
+    std::fs::write(dir.join("unknown_time.ant"), unknown_time()).expect("write unknown_time.ant");
     std::fs::write(dir.join("forward_compat.ant"), forward_compat())
         .expect("write forward_compat.ant");
     std::fs::write(dir.join("tombstones.ant"), tombstones()).expect("write tombstones.ant");
@@ -919,6 +982,25 @@ fn main() {
             "recordKinds": ["vertex", "vertex", "edge", "observation",
                              "evidence", "belief", "vector"],
             "firstVertexId": "deal_1"
+        },
+        "unknown_time.ant": {
+            "version": FORMAT_VERSION,
+            "tenantId": 1,
+            "projectId": 1,
+            "counts": {"schemaTypes": 0, "vertices": 0, "edges": 0,
+                        "observations": 2, "evidence": 0, "beliefs": 0, "vectors": 0,
+                        "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
+                        "relationshipProposals": 0},
+            "recordKinds": ["observation", "observation"],
+            // In file order (undated first, dated second). A binding that
+            // could not read the v0.6 wire form would classify these
+            // wrong or fail to read them at all.
+            "observedTimeStates": ["unknown", "known"],
+            // The undated one's PROVENANCE time carries its basis; the
+            // dated one's is a bare string, so no basis. `null` marks the
+            // bare-string form the check must still accept.
+            "extractedTimeBases": ["source_record_time", null],
+            "unknownReasons": ["no_source_time"]
         },
         "forward_compat.ant": {
             "version": FORMAT_VERSION,

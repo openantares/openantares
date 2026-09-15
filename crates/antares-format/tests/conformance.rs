@@ -177,9 +177,9 @@ fn version_parses_major_minor() {
 /// out an older reader.
 #[test]
 fn same_major_newer_minor_is_readable() {
-    // Must name a version strictly AHEAD of this build (now 0.5), or
+    // Must name a version strictly AHEAD of this build (now 0.6), or
     // the test stops exercising the forward-compat path it exists for.
-    let (verified, ahead, n) = read_all(&stream_at("0.6", None)).expect("v0.6 must be readable");
+    let (verified, ahead, n) = read_all(&stream_at("0.7", None)).expect("v0.7 must be readable");
     assert!(verified, "trailer still verifies across a minor bump");
     assert_eq!(n, 1);
     assert!(ahead, "the reader must know the file is ahead of it");

@@ -8,6 +8,19 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.4.0 — 2026-09-15 — format 0.6 — explicitly-unknown observation time
+
+- New public `EventTime` (with `TimeBasis` and `UnknownTime`): a
+  bitemporal time that is either `Known { at, basis }` or
+  `Unknown { reason }`, aligned verbatim with the engine's process-mining
+  vocabulary (PRODUCT-209). Manual serde: a `Known` with no basis is the
+  bare RFC3339 string (v0.5-identical), a basis or an unknown reason
+  takes an object form. `JsonSchema` shadow under `schemars`.
+- BREAKING: `Observation::observed_at` and `Observation::extracted_at`
+  are now `EventTime` (were `DateTime<Utc>`), so a dateless original is
+  representable and nothing fabricates an instant for it (PRODUCT-231).
+  A crate MINOR on the next release-prep pass, per the train rule above.
+
 ## 0.3.1 — 2026-09-14 — format 0.5, schema generated from the types
 
 - `schemars` feature: `JsonSchema` derives on every record type, so the
