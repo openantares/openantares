@@ -8,6 +8,21 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.4.1 — 2026-09-17 — format 0.6 — conditional revision chains
+
+- New public `ConditionalRevision` (`chainId`, `expectedPreviousRevisionId`,
+  `initializeFromExisting`) with `validate`, plus
+  `CONDITIONAL_REVISION_METADATA_KEY`: the optimistic-concurrency
+  condition an engine keeps inside an observation's `metadata` as a
+  versioned envelope, so it travels through sync and `.ant` archives
+  unchanged. `JsonSchema` shadow under `schemars`.
+- `Observation::conditional_revision`, `set_conditional_revision`,
+  `take_conditional_revision` and
+  `metadata_uses_conditional_revision_envelope`: read, attach and strip
+  that envelope, restoring the producer's original metadata exactly.
+  Additive: no record arm, count or wire shape changed, and an archive
+  without conditions is byte-identical.
+
 ## 0.4.0 — 2026-09-15 — format 0.6 — explicitly-unknown observation time
 
 - New public `EventTime` (with `TimeBasis` and `UnknownTime`): a

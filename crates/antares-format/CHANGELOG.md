@@ -5,6 +5,11 @@ a record kind is a crate MINOR here: `AntRecord` is exhaustively matched
 by consumers (this repository's own CLI needed a new arm), and `Counts`
 gains a field. See `ant-types/CHANGELOG.md` for the train rule.
 
+## 0.4.1 — 2026-09-17 — format 0.6 — conditional revision chains
+
+- No format change. Moves with the train so a published `ant-types`
+  0.4.1 resolves coherently in dependency order.
+
 ## 0.4.0 — 2026-09-15 — format 0.6 — explicitly-unknown observation time
 
 - `FORMAT_VERSION` / `SUPPORTED_FORMAT_VERSION` "0.6", `FORMAT_MINOR` 6.

@@ -55,7 +55,7 @@ pub use event_time::{EventTime, TimeBasis, UnknownTime};
 pub use evidence::{Evidence, EvidenceId};
 pub use graph::{Edge, PropertyValue, Vertex};
 pub use ids::{EdgeId, Namespace, ProjectId, TenantId, TypeName, VertexId};
-pub use observation::{Observation, ObservationId};
+pub use observation::{ConditionalRevision, Observation, ObservationId};
 pub use proposal::{
     CastTarget, Normalization, NormalizationOp, ProbeRef, ProposalOrigin, ProposalReferences,
     ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,

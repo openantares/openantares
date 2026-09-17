@@ -18,6 +18,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::author::AuthorStamp;
+use crate::error::CoreError;
 use crate::event_time::EventTime;
 use crate::evidence::EvidenceId;
 use crate::ids::{ProjectId, TenantId, VertexId};
@@ -27,6 +28,85 @@ use crate::ids::{ProjectId, TenantId, VertexId};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ObservationId(pub String);
+
+/// An optimistic concurrency condition for one immutable revision chain.
+///
+/// `chain_id` is opaque to the engine. Its durable identity is scoped by
+/// tenant, project and vault, so the same name in another scope is a different
+/// chain. A normal successor names the exact previous revision. A first
+/// guarded revision omits it. `initialize_from_existing` is the explicit
+/// boundary for adopting an older, unguarded revision as the predecessor.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConditionalRevision {
+    /// Opaque identity of the chain within its tenant/project/vault scope.
+    pub chain_id: String,
+    /// Exact head this revision expects, or `None` for first creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_previous_revision_id: Option<String>,
+    /// Adopt the named older, unguarded revision as this chain's boundary.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub initialize_from_existing: bool,
+}
+
+/// Internal metadata slot that makes a condition part of the immutable
+/// observation and therefore carries it through sync and `.ant` archives.
+/// API conversions remove this implementation detail and expose the typed
+/// `conditionalRevision` field instead.
+pub const CONDITIONAL_REVISION_METADATA_KEY: &str = "__antaresConditionalRevision";
+const ORIGINAL_METADATA_KEY: &str = "__antaresOriginalMetadata";
+const METADATA_ENVELOPE_KEY: &str = "__antaresMetadataEnvelope";
+const METADATA_ENVELOPE_VERSION: u64 = 1;
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl ConditionalRevision {
+    /// Maximum encoded size of an opaque chain id.
+    pub const MAX_CHAIN_ID_BYTES: usize = 512;
+    /// Maximum encoded size of current and previous revision ids.
+    pub const MAX_REVISION_ID_BYTES: usize = 1024;
+
+    /// Validate the condition against the id of the proposed revision.
+    pub fn validate(&self, revision_id: &str) -> Result<(), CoreError> {
+        fn valid_id(value: &str, max: usize) -> bool {
+            !value.is_empty() && value.len() <= max && !value.contains('\0')
+        }
+        if !valid_id(&self.chain_id, Self::MAX_CHAIN_ID_BYTES) {
+            return Err(CoreError::InvalidInput(format!(
+                "conditional revision chainId must be 1..={} bytes and contain no NUL",
+                Self::MAX_CHAIN_ID_BYTES
+            )));
+        }
+        if !valid_id(revision_id, Self::MAX_REVISION_ID_BYTES) {
+            return Err(CoreError::InvalidInput(format!(
+                "conditional revision id must be 1..={} bytes and contain no NUL",
+                Self::MAX_REVISION_ID_BYTES
+            )));
+        }
+        if let Some(previous) = &self.expected_previous_revision_id {
+            if !valid_id(previous, Self::MAX_REVISION_ID_BYTES) {
+                return Err(CoreError::InvalidInput(format!(
+                    "expectedPreviousRevisionId must be 1..={} bytes and contain no NUL",
+                    Self::MAX_REVISION_ID_BYTES
+                )));
+            }
+            if previous == revision_id {
+                return Err(CoreError::InvalidInput(
+                    "a conditional revision cannot name itself as its predecessor".into(),
+                ));
+            }
+        }
+        if self.initialize_from_existing && self.expected_previous_revision_id.is_none() {
+            return Err(CoreError::InvalidInput(
+                "initializeFromExisting requires expectedPreviousRevisionId".into(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// An atomic, source-bound fact about a subject.
 ///
@@ -111,4 +191,90 @@ pub struct Observation {
     /// resolved authentication context at write time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<AuthorStamp>,
+}
+
+impl Observation {
+    /// Whether caller metadata is attempting to supply the engine-owned
+    /// versioned envelope. A condition-shaped key on its own remains ordinary
+    /// historical metadata; only the version marker claims engine semantics.
+    pub fn metadata_uses_conditional_revision_envelope(metadata: &serde_json::Value) -> bool {
+        metadata
+            .as_object()
+            .and_then(|object| object.get(METADATA_ENVELOPE_KEY))
+            .and_then(serde_json::Value::as_u64)
+            == Some(METADATA_ENVELOPE_VERSION)
+    }
+
+    /// Read the typed condition retained in this observation's internal
+    /// metadata. A malformed reserved value is refused rather than ignored.
+    pub fn conditional_revision(&self) -> Result<Option<ConditionalRevision>, CoreError> {
+        let Some(object) = self.metadata.as_object() else {
+            return Ok(None);
+        };
+        if !Self::metadata_uses_conditional_revision_envelope(&self.metadata) {
+            return Ok(None);
+        }
+        let Some(value) = object.get(CONDITIONAL_REVISION_METADATA_KEY) else {
+            return Err(CoreError::InvalidInput(
+                "conditional revision metadata is not a valid engine envelope".into(),
+            ));
+        };
+        if !object.contains_key(ORIGINAL_METADATA_KEY) || object.len() != 3 {
+            return Err(CoreError::InvalidInput(
+                "conditional revision metadata is not a valid engine envelope".into(),
+            ));
+        }
+        serde_json::from_value(value.clone())
+            .map(Some)
+            .map_err(|e| {
+                CoreError::InvalidInput(format!("malformed conditional revision metadata: {e}"))
+            })
+    }
+
+    /// Make `condition` part of the immutable stored record. Producer metadata
+    /// is nested in a versioned engine envelope and restored exactly by
+    /// `take_conditional_revision`, regardless of its JSON shape or keys.
+    pub fn set_conditional_revision(
+        &mut self,
+        condition: ConditionalRevision,
+    ) -> Result<(), CoreError> {
+        condition.validate(&self.id.0)?;
+        let value = serde_json::to_value(&condition)
+            .map_err(|e| CoreError::InvalidInput(format!("conditional revision encode: {e}")))?;
+        match self.conditional_revision()? {
+            Some(existing) if existing == condition => return Ok(()),
+            Some(_) => {
+                return Err(CoreError::InvalidInput(
+                    "metadata contains a different reserved conditional revision".into(),
+                ))
+            }
+            None => {}
+        }
+        let original = std::mem::take(&mut self.metadata);
+        let mut object = serde_json::Map::new();
+        object.insert(
+            METADATA_ENVELOPE_KEY.into(),
+            serde_json::Value::from(METADATA_ENVELOPE_VERSION),
+        );
+        object.insert(ORIGINAL_METADATA_KEY.into(), original);
+        object.insert(CONDITIONAL_REVISION_METADATA_KEY.into(), value);
+        self.metadata = serde_json::Value::Object(object);
+        Ok(())
+    }
+
+    /// Remove the internal representation for an API response and restore the
+    /// caller's original metadata value.
+    pub fn take_conditional_revision(&mut self) -> Result<Option<ConditionalRevision>, CoreError> {
+        let condition = self.conditional_revision()?;
+        if condition.is_none() {
+            return Ok(None);
+        }
+        self.metadata = self
+            .metadata
+            .as_object()
+            .and_then(|object| object.get(ORIGINAL_METADATA_KEY))
+            .cloned()
+            .expect("conditional_revision accepted only a complete envelope");
+        Ok(condition)
+    }
 }

@@ -3,6 +3,10 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.4.1 — 2026-09-17 — format 0.6
+
+- No CLI change. Moves with the train.
+
 ## 0.4.0 — 2026-09-15 — format 0.6
 
 - No CLI change. Builds against the 0.4.0 crates above; `info` and
