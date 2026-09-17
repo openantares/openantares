@@ -3,10 +3,15 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.5.0 — 2026-09-17 — format 0.7
+
+- `info` tallies and prints native `ontology revisions`.
+- Reads the additive `ontology_revision` record and
+  `ontologyRevisions` trailer count through `antares-format`.
+
 ## 0.4.1 — 2026-09-17 — format 0.6
 
 - No CLI change. Moves with the train.
-
 ## 0.4.0 — 2026-09-15 — format 0.6
 
 - No CLI change. Builds against the 0.4.0 crates above; `info` and

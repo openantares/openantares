@@ -14,11 +14,16 @@ use ant_types::{
     AuthorStamp, Belief, BeliefId, BusinessImpact, CaseRevisionId, ClaimKind, ClaimRef,
     ComparatorIdentity, ContradictionCase, ContradictionCaseId, Edge, EdgeId, EpistemicState,
     Evidence, EvidenceId, Material, MeasurementRef, Normalization, NormalizationOp, Observation,
-    ObservationId, ProbeRef, ProjectId, PropertyValue, ProposalOrigin, ProposalRevisionId,
-    ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,
-    RelationshipProposalId, ReviewerReceipt, Sampling, SourceDependency, SourceManifestRef,
-    SourcePointer, SubjectType, SupportMethod, TenantId, TypeName, UserId, VaultOccurrence, Vertex,
-    VertexId, WorkflowState,
+    ObservationId, OntologyApprovalAttestation, OntologyApprovalBinding, OntologyAttribution,
+    OntologyConditionalPosition, OntologyPositionDisposition, OntologyPublisherStamp,
+    OntologyRecordKind, OntologyRecordRef, OntologyRetainedPosition, OntologyRevision,
+    OntologyRevisionId, OntologyRevisionManifest, OntologySemanticItem, OntologySourceOwnerConsent,
+    OntologyVaultPin, ProbeRef, ProjectId, PropertyDef, PropertyValue, ProposalOrigin,
+    ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,
+    RelationshipProposalId, ReviewerReceipt, Sampling, SchemaType, SourceDependency,
+    SourceManifestRef, SourcePointer, SpgTypeKind, SubjectType, SupportMethod, TenantId, TokenId,
+    TypeName, UserId, ValueType, VaultOccurrence, Vertex, VertexId, WorkflowState,
+    ONTOLOGY_CHAIN_ID, ONTOLOGY_REVISION_DOMAIN,
 };
 use antares_format::{
     AntRecord, AntWriter, Counts, Manifest, Tombstone, VectorRecord, FORMAT_VERSION,
@@ -953,6 +958,227 @@ fn unknown_time() -> Vec<u8> {
     w.finish().expect("finish")
 }
 
+fn ontology_sha256(value: &impl serde::Serialize) -> String {
+    let mut value = serde_json::to_value(value).expect("ontology fixture serializes");
+    value.sort_all_objects();
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let mut hasher = Sha256::new();
+    hasher.update(b"antares-canonical-json-v1\0");
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// v0.7 golden: one complete, self-contained immutable ontology election.
+/// Its evidence precedes the revision so the archive demonstrates native
+/// closure instead of depending on placeholder ancestors or a destination
+/// store that a third-party conformance runner does not have.
+fn ontology_revisions() -> (Vec<u8>, OntologyRevision) {
+    let mut evidence = Evidence::quick(
+        "ontology-support-1",
+        TenantId(7),
+        ProjectId(7),
+        "review",
+        "ontology-genesis",
+        "reviewed declaration: Test.Deal.amount is a Long",
+    );
+    evidence.author = Some(AuthorStamp {
+        user_id: UserId("sme-a".into()),
+        token_id: Some(TokenId("token-sme-a-fixture".into())),
+        subject_type: SubjectType::User,
+        authored_at: "2026-09-17T15:20:00Z".parse().unwrap(),
+    });
+    let evidence_ref = OntologyRecordRef {
+        kind: OntologyRecordKind::Evidence,
+        id: evidence.id.0.clone(),
+        content_sha256: ontology_sha256(&evidence),
+    };
+    let schema = SchemaType {
+        kind: SpgTypeKind::EntityType,
+        name: TypeName("Test.Deal".into()),
+        name_zh: None,
+        properties: vec![PropertyDef {
+            name: "amount".into(),
+            name_zh: None,
+            value_type: ValueType::Long,
+            index: None,
+        }],
+        relations: Vec::new(),
+    };
+    let semantic_item = OntologySemanticItem::SchemaType {
+        key: "Test.Deal".into(),
+        revision: "review:ontology-genesis:1".into(),
+        content_sha256: ontology_sha256(&schema),
+        content: schema,
+        support: vec![evidence_ref.clone()],
+    };
+    let attestation = OntologyApprovalAttestation {
+        attestation_version: 1,
+        attester_principal: "machine:main-server".into(),
+        proposal_id: "proposal:ontology-genesis".into(),
+        election_subject_sha256: "0".repeat(64),
+        source_vault: "root".into(),
+        source_vault_revision: 0,
+        target_vault: "team:operations".into(),
+        target_vault_revision: 0,
+        authority_policy_revision: "decision-authority-2026-09-17".into(),
+        authority_policy_sha256: "c365c65db86a8aaa165d982353a10a1e0ddb88b2f995b9fdc489cf19e00f5d38"
+            .into(),
+        designation: serde_json::json!({"kind": "reviewer"}),
+        matched_by: serde_json::json!({
+            "kind": "group",
+            "group": "/directory/entra/ops-managers"
+        }),
+        source_owner_consent: OntologySourceOwnerConsent {
+            consent_version: 1,
+            consent_id: "source-owner-consent:ontology-genesis".into(),
+            owner_principal: "user:ontology-source-owner".into(),
+            election_subject_sha256: "0".repeat(64),
+            source: OntologyVaultPin {
+                vault_id: "root".into(),
+                vault_revision: 0,
+                ontology_revision: None,
+            },
+            target: OntologyVaultPin {
+                vault_id: "team:operations".into(),
+                vault_revision: 0,
+                ontology_revision: None,
+            },
+            published_records: vec![evidence_ref.clone()],
+            published_revision_refs: Vec::new(),
+            consent: serde_json::json!({
+                "consentId": "source-owner-consent:ontology-genesis",
+                "sourceOwner": "user:ontology-source-owner",
+                "electionSubjectSha256": "0".repeat(64),
+                "source": {"vaultId": "root", "vaultRevision": 0},
+                "target": {"vaultId": "team:operations", "vaultRevision": 0},
+                "publishedRecords": [evidence_ref.clone()],
+                "publishedRevisionRefs": [],
+                "at": "2026-09-17T15:20:00Z",
+                "valid": true
+            }),
+        },
+        approval: serde_json::json!({
+            "reviewId": "review:ontology-genesis",
+            "revision": 1,
+            "materialFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reviewer": "operations-owner",
+            "grantId": "ontology-publication-conformance",
+            "authorized": {},
+            "binding": {"executor": "machine:main-server"},
+            "identity": {},
+            "policyRevision": {
+                "version": "decision-authority-2026-09-17",
+                "sha256": "c365c65db86a8aaa165d982353a10a1e0ddb88b2f995b9fdc489cf19e00f5d38"
+            },
+            "designation": {"kind": "reviewer"},
+            "at": "2026-09-17T15:25:00Z",
+            "valid": true
+        }),
+    };
+    let mut reviewed_manifest = OntologyRevisionManifest {
+        contract_version: 1,
+        election_subject_sha256: "0".repeat(64),
+        source: OntologyVaultPin {
+            vault_id: "root".into(),
+            vault_revision: 0,
+            ontology_revision: None,
+        },
+        target: OntologyVaultPin {
+            vault_id: "team:operations".into(),
+            vault_revision: 0,
+            ontology_revision: None,
+        },
+        common_base: None,
+        dependencies: Vec::new(),
+        semantic_items: vec![semantic_item],
+        published_records: vec![evidence_ref.clone()],
+        published_revision_refs: Vec::new(),
+        accepted_claims: Vec::new(),
+        retained_positions: vec![OntologyRetainedPosition {
+            disposition: OntologyPositionDisposition::Accepted,
+            records: vec![evidence_ref.clone()],
+        }],
+        attribution: vec![OntologyAttribution {
+            principal: "user:sme-a".into(),
+            evidence: evidence_ref,
+        }],
+        reverses: None,
+        approval: OntologyApprovalBinding {
+            content_sha256: "0".repeat(64),
+            attestation,
+        },
+    };
+    let election_subject_sha256 = ontology_sha256(&reviewed_manifest.election_subject());
+    reviewed_manifest.election_subject_sha256 = election_subject_sha256.clone();
+    reviewed_manifest
+        .approval
+        .attestation
+        .election_subject_sha256 = election_subject_sha256;
+    reviewed_manifest
+        .approval
+        .attestation
+        .source_owner_consent
+        .election_subject_sha256 = reviewed_manifest.election_subject_sha256.clone();
+    reviewed_manifest
+        .approval
+        .attestation
+        .source_owner_consent
+        .consent["electionSubjectSha256"] =
+        serde_json::Value::String(reviewed_manifest.election_subject_sha256.clone());
+    reviewed_manifest.approval.content_sha256 =
+        ontology_sha256(&reviewed_manifest.approval.attestation);
+    let manifest_sha256 = ontology_sha256(&reviewed_manifest);
+    let revision_id = OntologyRevisionId(format!("orv1:{manifest_sha256}"));
+    let request_id = "ontology-publication:conformance:genesis".to_string();
+    let request_sha256 = ontology_sha256(&serde_json::json!({
+        "requestId": request_id,
+        "projectId": 7,
+        "canonicalEncoding": "antares-canonical-json-v1",
+        "manifestSha256": manifest_sha256,
+        "manifest": &reviewed_manifest
+    }));
+    let revision = OntologyRevision {
+        id: revision_id.clone(),
+        tenant_id: TenantId(7),
+        project_id: ProjectId(7),
+        manifest_sha256,
+        manifest: reviewed_manifest,
+        publisher: OntologyPublisherStamp {
+            principal: "machine:main-server".into(),
+            token_id: "token-main-server-fixture".into(),
+            subject_type: "service".into(),
+        },
+        request_id,
+        request_sha256,
+        committed_at: "2026-09-17T15:30:00Z".parse().unwrap(),
+        conditional: OntologyConditionalPosition {
+            revision_domain: ONTOLOGY_REVISION_DOMAIN.into(),
+            chain_id: ONTOLOGY_CHAIN_ID.into(),
+            revision_id,
+            previous_revision_id: None,
+            initialized_from_existing: false,
+        },
+    };
+    revision
+        .validate_shape()
+        .expect("ontology conformance revision is structurally valid");
+
+    let mut file_manifest = manifest();
+    file_manifest.tenant_id = 7;
+    file_manifest.project_id = 7;
+    file_manifest.selection = Some(serde_json::json!({"kind": "ontology_closure"}));
+    let mut writer = AntWriter::new(Vec::new(), file_manifest, 0).expect("writer");
+    writer
+        .write(AntRecord::Evidence { data: evidence })
+        .unwrap();
+    writer
+        .write(AntRecord::OntologyRevision {
+            data: Box::new(revision.clone()),
+        })
+        .unwrap();
+    (writer.finish().expect("finish"), revision)
+}
+
 fn main() {
     let dir = out_dir();
     std::fs::create_dir_all(&dir).expect("mkdir golden");
@@ -970,6 +1196,9 @@ fn main() {
         relationship_proposals(),
     )
     .expect("write relationship_proposals.ant");
+    let (ontology_bytes, ontology_revision) = ontology_revisions();
+    std::fs::write(dir.join("ontology_revisions.ant"), ontology_bytes)
+        .expect("write ontology_revisions.ant");
     let expected = serde_json::json!({
         "basic.ant": {
             "version": FORMAT_VERSION,
@@ -978,7 +1207,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 2, "edges": 1,
                         "observations": 1, "evidence": 1, "beliefs": 1, "vectors": 1,
                         "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
-                        "relationshipProposals": 0},
+                        "relationshipProposals": 0, "ontologyRevisions": 0},
             "recordKinds": ["vertex", "vertex", "edge", "observation",
                              "evidence", "belief", "vector"],
             "firstVertexId": "deal_1"
@@ -990,7 +1219,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 0, "edges": 0,
                         "observations": 2, "evidence": 0, "beliefs": 0, "vectors": 0,
                         "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
-                        "relationshipProposals": 0},
+                        "relationshipProposals": 0, "ontologyRevisions": 0},
             "recordKinds": ["observation", "observation"],
             // In file order (undated first, dated second). A binding that
             // could not read the v0.6 wire form would classify these
@@ -1009,7 +1238,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 1, "edges": 0,
                         "observations": 0, "evidence": 0, "beliefs": 0, "vectors": 0,
                         "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
-                        "relationshipProposals": 0},
+                        "relationshipProposals": 0, "ontologyRevisions": 0},
             "recordKinds": ["vertex"],
             "skippedKinds": ["hologram"]
         },
@@ -1020,7 +1249,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 1, "edges": 1,
                         "observations": 0, "evidence": 0, "beliefs": 0, "vectors": 0,
                         "vertexTombstones": 1, "edgeTombstones": 1, "contradictionCases": 0,
-                        "relationshipProposals": 0},
+                        "relationshipProposals": 0, "ontologyRevisions": 0},
             "recordKinds": ["vertex", "edge", "vertex_tombstone", "edge_tombstone"],
             "firstVertexId": "deal_live"
         },
@@ -1031,7 +1260,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 2, "edges": 0,
                         "observations": 4, "evidence": 8, "beliefs": 1, "vectors": 0,
                         "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 4,
-                        "relationshipProposals": 0},
+                        "relationshipProposals": 0, "ontologyRevisions": 0},
             "recordKinds": ["vertex", "vertex",
                              "evidence", "evidence", "evidence", "evidence",
                              "evidence", "evidence", "evidence", "evidence",
@@ -1053,7 +1282,7 @@ fn main() {
             "counts": {"schemaTypes": 0, "vertices": 0, "edges": 0,
                         "observations": 0, "evidence": 5, "beliefs": 0, "vectors": 0,
                         "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
-                        "relationshipProposals": 3},
+                        "relationshipProposals": 3, "ontologyRevisions": 0},
             "recordKinds": ["evidence", "evidence", "evidence", "evidence", "evidence",
                              "relationship_proposal", "relationship_proposal",
                              "relationship_proposal"],
@@ -1064,6 +1293,26 @@ fn main() {
                                   "promoted_by_reviewer"],
             "proposalMatched": [890, 0, 890],
             "proposalNonNull": [900, 1914, 900]
+        },
+        "ontology_revisions.ant": {
+            "version": FORMAT_VERSION,
+            "tenantId": 7,
+            "projectId": 7,
+            "counts": {"schemaTypes": 0, "vertices": 0, "edges": 0,
+                        "observations": 0, "evidence": 1, "beliefs": 0, "vectors": 0,
+                        "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
+                        "relationshipProposals": 0, "ontologyRevisions": 1},
+            "recordKinds": ["evidence", "ontology_revision"],
+            "ontologyRevisionIds": [ontology_revision.id.0],
+            "ontologyTargetVaults": ["team:operations"],
+            "ontologyPreviousRevisionIds": [null],
+            "ontologySemanticKinds": [["schema_type"]],
+            "ontologyConditionalDomains": ["ontology/v1"],
+            "ontologyConditionalChains": ["ontology"],
+            "ontologyPublisherPrincipals": ["machine:main-server"],
+            "ontologyApprovalAttesters": ["machine:main-server"],
+            "ontologyRetainedDispositions": [["accepted"]],
+            "ontologyAttributionPrincipals": [["user:sme-a"]]
         }
     });
     std::fs::write(

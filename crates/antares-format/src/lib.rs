@@ -31,6 +31,7 @@
 //! {"kind":"edge_tombstone",   "data":{...}}          v0.2
 //! {"kind":"contradiction_case", "data":{...}}        v0.4
 //! {"kind":"relationship_proposal", "data":{...}}     v0.5
+//! {"kind":"ontology_revision", "data":{...}}         v0.7
 //! {"kind":"trailer", "counts":{...}, "sha256":"..."}   exactly one, last line
 //! ```
 //!
@@ -70,6 +71,21 @@
 //!
 //! Recording a proposal never publishes it into a mapping: what an
 //! exporter may build edges from is a separate, reviewed decision.
+//!
+//! ## Elected ontology revisions (v0.7)
+//!
+//! An `ontology_revision` record carries one complete immutable elected
+//! semantic envelope ([`ant_types::OntologyRevision`]): typed definitions,
+//! reviewed vault/head pins, explicit publication closure, retained competing
+//! and rejected positions, contributor attribution, the complete approval
+//! attestation, first publisher credential, committed idempotency tuple, and
+//! conditional-chain position. The current per-vault head is derived from the
+//! unique validated chain; it is not a second canonical archive record.
+//!
+//! Import must reject a divergent same-id envelope, fork, cycle, domain
+//! mismatch, or missing visible closure. Counted as `ontologyRevisions`; older
+//! readers default that trailer key to zero and skip the unknown record kind
+//! while still hashing its exact line.
 //!
 //! ## Explicitly-unknown observation time (v0.6)
 //!
@@ -165,11 +181,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use ant_types::{
-    Belief, ContradictionCase, Evidence, Observation, RelationshipProposal, SchemaType, Vertex,
+    Belief, ContradictionCase, Evidence, Observation, OntologyRevision, RelationshipProposal,
+    SchemaType, Vertex,
 };
 
 /// The `MAJOR.MINOR` format version written into new manifests.
-pub const FORMAT_VERSION: &str = "0.6";
+pub const FORMAT_VERSION: &str = "0.7";
 /// Conventional file extension for the container.
 pub const EXTENSION: &str = "ant";
 
@@ -183,7 +200,7 @@ pub const SUPPORTED_FORMAT_VERSION: &str = FORMAT_VERSION;
 /// Major version this reader implements. See [`FormatVersion`].
 pub const FORMAT_MAJOR: u32 = 0;
 /// Minor version this reader implements.
-pub const FORMAT_MINOR: u32 = 6;
+pub const FORMAT_MINOR: u32 = 7;
 
 /// A parsed `MAJOR.MINOR` format version.
 ///
@@ -373,6 +390,11 @@ pub struct Counts {
     /// rather than reject the older file; an older reader ignores the key.
     #[serde(default)]
     pub relationship_proposals: u64,
+    /// `ontology_revision` records. Added in v0.7. Absent in an older
+    /// trailer, where it means zero; an older reader ignores the key and
+    /// skips the record kind while preserving stream integrity verification.
+    #[serde(default)]
+    pub ontology_revisions: u64,
 }
 
 /// A deletion, carried so a re-import can propagate it.
@@ -458,6 +480,7 @@ pub const DATA_KIND_COUNT_KEYS: &[(&str, &str)] = &[
     ("edge_tombstone", "edgeTombstones"),
     ("contradiction_case", "contradictionCases"),
     ("relationship_proposal", "relationshipProposals"),
+    ("ontology_revision", "ontologyRevisions"),
 ];
 
 /// One record in the stream.
@@ -535,6 +558,15 @@ pub enum AntRecord {
     RelationshipProposal {
         /// The revision.
         data: Box<RelationshipProposal>,
+    },
+    /// One immutable elected ontology revision (v0.7). The envelope contains
+    /// every byte required to rebuild its idempotency indexes and validated
+    /// conditional head without inventing authority during hydration.
+    // Boxed because manifests retain the complete typed semantic and evidence
+    // closure and would otherwise determine the size of every enum slot.
+    OntologyRevision {
+        /// The immutable elected revision.
+        data: Box<OntologyRevision>,
     },
     /// The stream footer: per-kind counts and the integrity hash.
     /// Exactly one, last line.
@@ -718,6 +750,7 @@ impl<W: Write> AntWriter<W> {
             AntRecord::EdgeTombstone { .. } => self.counts.edge_tombstones += 1,
             AntRecord::ContradictionCase { .. } => self.counts.contradiction_cases += 1,
             AntRecord::RelationshipProposal { .. } => self.counts.relationship_proposals += 1,
+            AntRecord::OntologyRevision { .. } => self.counts.ontology_revisions += 1,
         }
         self.write_record(&rec)
     }
@@ -926,6 +959,7 @@ impl<R: Read> AntReader<R> {
                         AntRecord::RelationshipProposal { .. } => {
                             self.counts.relationship_proposals += 1
                         }
+                        AntRecord::OntologyRevision { .. } => self.counts.ontology_revisions += 1,
                         AntRecord::Manifest(_) | AntRecord::Trailer { .. } => unreachable!(),
                     }
                     return Ok(Some(rec));

@@ -13,6 +13,12 @@ vocabulary that appears inside a `.ant` file, and nothing else.
 - **Contradiction cases** — immutable revisions comparing two or more
   exact claim revisions, carrying references (never copies) and three
   independent states: epistemic, business impact, workflow (format 0.4).
+- **Relationship proposals** — immutable measured proposals and their
+  evidence/review closure (format 0.5).
+- **Ontology revisions** — immutable elected semantic manifests with
+  exact vault/head pins, typed definitions, publication closure,
+  approval binding, publisher identity, and conditional position
+  (format 0.7).
 - **Schema** — OpenSPG-compatible type declarations.
 - **Authorship** — the provenance stamp records can carry.
 

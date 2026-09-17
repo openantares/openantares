@@ -169,8 +169,16 @@ fn generate() -> (Value, Facts) {
     }
 
     // 4. Remaining shared types are named in snake_case.
-    let renames: BTreeMap<String, String> =
-        defs.keys().map(|k| (k.clone(), snake_case(k))).collect();
+    let renames: BTreeMap<String, String> = defs
+        .keys()
+        .map(|key| {
+            let mut name = snake_case(key);
+            if kinds.contains(&name) {
+                name.push_str("_payload");
+            }
+            (key.clone(), name)
+        })
+        .collect();
     let mut renamed: Map<String, Value> = Map::new();
     for (old, mut value) in defs {
         let new = renames[&old].clone();

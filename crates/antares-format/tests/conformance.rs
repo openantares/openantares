@@ -59,6 +59,7 @@ fn basic_golden_verifies_with_expected_counts() {
             AntRecord::EdgeTombstone { .. } => "edge_tombstone",
             AntRecord::ContradictionCase { .. } => "contradiction_case",
             AntRecord::RelationshipProposal { .. } => "relationship_proposal",
+            AntRecord::OntologyRevision { .. } => "ontology_revision",
             AntRecord::Manifest(_) | AntRecord::Trailer { .. } => unreachable!(),
         });
     }
@@ -177,9 +178,9 @@ fn version_parses_major_minor() {
 /// out an older reader.
 #[test]
 fn same_major_newer_minor_is_readable() {
-    // Must name a version strictly AHEAD of this build (now 0.6), or
+    // Must name a version strictly AHEAD of this build (now 0.7), or
     // the test stops exercising the forward-compat path it exists for.
-    let (verified, ahead, n) = read_all(&stream_at("0.7", None)).expect("v0.7 must be readable");
+    let (verified, ahead, n) = read_all(&stream_at("0.8", None)).expect("v0.8 must be readable");
     assert!(verified, "trailer still verifies across a minor bump");
     assert_eq!(n, 1);
     assert!(ahead, "the reader must know the file is ahead of it");
@@ -606,11 +607,59 @@ fn relationship_proposals_golden_carries_the_proposals_and_their_closure() {
     }
 }
 
-/// The additive promise, from the other side: a trailer written before
-/// v0.5 has no `relationshipProposals` key, and it must read as zero
-/// rather than as an error — otherwise every additive kind is a
-/// breaking change. A v0.5 trailer carries the key, and a reader that
-/// does not know it ignores it (serde drops unknown fields).
+// v0.7 golden: elected ontology revisions.
+
+/// Surface and validate the complete native envelope. Count-only coverage
+/// would let a binding skip the new record as unknown while still verifying
+/// the archive hash, so the fixture pins the semantic and conditional fields.
+#[test]
+fn ontology_revisions_golden_carries_the_immutable_election_envelope() {
+    let bytes = golden("ontology_revisions.ant");
+    let mut reader = AntReader::new(&bytes[..]).expect("golden must open");
+    let mut revisions = Vec::new();
+    let mut evidence = Vec::new();
+    while let Some(record) = reader.next_record().expect("golden must read clean") {
+        match record {
+            AntRecord::Evidence { data } => evidence.push(data),
+            AntRecord::OntologyRevision { data } => revisions.push(*data),
+            other => panic!("unexpected record in ontology_revisions.ant: {other:?}"),
+        }
+    }
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(revisions.len(), 1);
+    let revision = &revisions[0];
+    revision
+        .validate_shape()
+        .expect("golden ontology revision must satisfy its native shape");
+    assert_eq!(revision.id.0, format!("orv1:{}", revision.manifest_sha256));
+    assert_eq!(revision.manifest.target.vault_id, "team:operations");
+    assert_eq!(revision.conditional.revision_domain, "ontology/v1");
+    assert_eq!(revision.conditional.chain_id, "ontology");
+    assert_eq!(revision.publisher.principal, "machine:main-server");
+    assert_eq!(
+        revision.manifest.approval.attestation.attester_principal,
+        "machine:main-server"
+    );
+    assert_eq!(revision.manifest.attribution[0].principal, "user:sme-a");
+    assert_eq!(
+        revision.manifest.retained_positions[0].disposition,
+        ant_types::OntologyPositionDisposition::Accepted
+    );
+    assert_eq!(
+        revision
+            .manifest
+            .semantic_items
+            .iter()
+            .map(|item| item.kind_name())
+            .collect::<Vec<_>>(),
+        ["schema_type"]
+    );
+    let support = &revision.manifest.semantic_items[0].support()[0];
+    assert_eq!(support.id, evidence[0].id.0);
+}
+
+/// The additive promise, from both sides: old trailers omit later count
+/// keys and read them as zero, while readers ignore keys from a future minor.
 #[test]
 fn an_older_trailer_reads_the_new_count_as_zero_and_a_newer_one_is_ignored() {
     let v04: Counts = serde_json::from_str(
@@ -624,6 +673,7 @@ fn an_older_trailer_reads_the_new_count_as_zero_and_a_newer_one_is_ignored() {
         v04.relationship_proposals, 0,
         "absent means zero, never an error"
     );
+    assert_eq!(v04.ontology_revisions, 0, "absent means zero");
 
     let v05 = serde_json::to_value(Counts {
         relationship_proposals: 3,
@@ -631,6 +681,14 @@ fn an_older_trailer_reads_the_new_count_as_zero_and_a_newer_one_is_ignored() {
     })
     .unwrap();
     assert_eq!(v05["relationshipProposals"], 3);
+    assert_eq!(v05["ontologyRevisions"], 0);
+
+    let v07 = serde_json::to_value(Counts {
+        ontology_revisions: 2,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(v07["ontologyRevisions"], 2);
 
     // A key from a version after this one is ignored, which is the same
     // rule pointed forward.

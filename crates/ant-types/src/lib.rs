@@ -38,6 +38,7 @@ pub mod evidence;
 pub mod graph;
 pub mod ids;
 pub mod observation;
+pub mod ontology;
 pub mod property;
 pub mod proposal;
 pub mod schema;
@@ -56,6 +57,7 @@ pub use evidence::{Evidence, EvidenceId};
 pub use graph::{Edge, PropertyValue, Vertex};
 pub use ids::{EdgeId, Namespace, ProjectId, TenantId, TypeName, VertexId};
 pub use observation::{ConditionalRevision, Observation, ObservationId};
+pub use ontology::*;
 pub use proposal::{
     CastTarget, Normalization, NormalizationOp, ProbeRef, ProposalOrigin, ProposalReferences,
     ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,

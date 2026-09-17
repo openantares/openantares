@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: openantares/ant
-          ref: v0.6.0
+          ref: v0.7.0
           path: format
       - uses: Swatinem/rust-cache@v2
 

@@ -8,6 +8,19 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.5.0 — 2026-09-17 — format 0.7 — elected ontology revisions
+
+- New `ontology` module with the immutable `OntologyRevision` envelope,
+  typed reviewed manifest, semantic items, exact record/revision refs,
+  retained positions, contributor attribution, approval binding,
+  publisher stamp, and conditional ontology-head position.
+- The stable semantic identity is `orv1:<manifestSha256>`; canonical
+  hashes use `antares-canonical-json-v1`. Structural validation enforces
+  explicit closure and the fixed `ontology/v1` / `ontology` chain.
+- This is a crate-minor addition because `antares-format::AntRecord`
+  gains an exhaustively matched variant; publication remains a separate
+  release-prep decision.
+
 ## 0.4.1 — 2026-09-17 — format 0.6 — conditional revision chains
 
 - New public `ConditionalRevision` (`chainId`, `expectedPreviousRevisionId`,
@@ -22,7 +35,6 @@ moves together so the registry stays coherent in dependency order.
   that envelope, restoring the producer's original metadata exactly.
   Additive: no record arm, count or wire shape changed, and an archive
   without conditions is byte-identical.
-
 ## 0.4.0 — 2026-09-15 — format 0.6 — explicitly-unknown observation time
 
 - New public `EventTime` (with `TimeBasis` and `UnknownTime`): a

@@ -69,6 +69,7 @@ fn read_all(path: &str) -> Result<(Manifest, Counts, usize, bool), (u8, String)>
                     AntRecord::EdgeTombstone { .. } => counts.edge_tombstones += 1,
                     AntRecord::ContradictionCase { .. } => counts.contradiction_cases += 1,
                     AntRecord::RelationshipProposal { .. } => counts.relationship_proposals += 1,
+                    AntRecord::OntologyRevision { .. } => counts.ontology_revisions += 1,
                     AntRecord::Manifest(_) | AntRecord::Trailer { .. } => {}
                 }
             }
@@ -155,4 +156,5 @@ fn print_counts(c: &Counts) {
     println!("  edge tombstones:   {}", c.edge_tombstones);
     println!("  contradiction cases: {}", c.contradiction_cases);
     println!("  relationship proposals: {}", c.relationship_proposals);
+    println!("  ontology revisions: {}", c.ontology_revisions);
 }

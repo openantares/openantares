@@ -1,8 +1,8 @@
 [package]
 name = "ant-types"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
-description = "Record types of the open Antares format (.ant): ids, graph, observation, evidence, belief, contradiction case, schema"
+description = "Record types of the open Antares format (.ant): graph, evidence, belief, contradiction, proposals, and ontology revisions"
 readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
