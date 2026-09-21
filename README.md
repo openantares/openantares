@@ -5,7 +5,8 @@ record types, the reader and writer, and a CLI to validate and inspect files.
 
 `.ant` is a self-contained, compressed, streamable container for exchanging a
 selection of a knowledge graph — schema types, vertices, edges, observations,
-evidence, beliefs, vector documents and deletions — as plain JSON records
+evidence, beliefs, vector documents, deletions, contradiction cases,
+relationship proposals and elected ontology revisions — as plain JSON records
 inside a standard zstd frame, checksummed end to end. The format is open and
 fully specified: a conformant reader is about a hundred lines in any language
 with zstd and SHA-256.
@@ -18,7 +19,7 @@ depends on it, and you need none of it to read, write or verify a `.ant` file.
 
 | crate | what it is |
 |-------|------------|
-| [`ant-types`](crates/ant-types) | the record types — ids, graph, observation, evidence, belief, schema, typed property values |
+| [`ant-types`](crates/ant-types) | the record types — ids, graph, observation (with event time that may be explicitly unknown), evidence, belief, contradiction case, relationship proposal, ontology revision, schema, typed property values |
 | [`antares-format`](crates/antares-format) | the container: streaming reader and writer, integrity checking, version policy |
 | [`openantares`](crates/openantares) | the CLI — `validate` and `info` |
 
@@ -35,7 +36,7 @@ As a library:
 
 ```toml
 [dependencies]
-antares-format = "0.1"
+antares-format = "0.5"
 ```
 
 ```rust
@@ -47,10 +48,10 @@ while let Some(record) = reader.next_record()? {
 }
 ```
 
-## Versions: crate `0.1.x`, format `0.3.x`
+## Versions: crate `0.5.x`, format `0.7.x`
 
 **The crate version and the format version are deliberately not the same
-number.** These crates are at `0.1.x`; the format they implement is `0.3`.
+number.** These crates are at `0.5.x`; the format they implement is `0.7`.
 
 Under pre-1.0 semver the *minor* is the breaking slot, so aligning the crate
 version to the format version would force a lie the first time the Rust API
@@ -77,9 +78,9 @@ CI here runs this crate's conformance suite against those goldens, pinned at
 the format's release tag, so the canonical writer and the published format
 cannot drift apart silently.
 
-API documentation is published on docs.rs for each crate:
-[ant-types](https://docs.rs/ant-types), [antares-format](https://docs.rs/antares-format),
-[openantares](https://docs.rs/openantares).
+API documentation is published on docs.rs for the two library crates,
+[ant-types](https://docs.rs/ant-types) and [antares-format](https://docs.rs/antares-format);
+the CLI is on [crates.io](https://crates.io/crates/openantares).
 
 ## License
 
