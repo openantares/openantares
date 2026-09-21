@@ -1,11 +1,12 @@
 [package]
 name = "antares-format"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "Open Antares format (.ant): streaming graph, evidence, belief, contradiction, proposal, and ontology exchange"
 readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
+documentation = "https://docs.rs/antares-format"
 license = "Apache-2.0"
 
 # docs.rs builds with every feature on, so the feature-gated derives
@@ -23,7 +24,7 @@ missing_docs = "deny"
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.5.0" }
+ant-types = { path = "../ant-types", version = "0.5.1" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

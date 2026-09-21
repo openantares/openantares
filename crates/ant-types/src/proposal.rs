@@ -94,9 +94,10 @@ pub enum SamplingMethod {
 }
 
 /// Which of a sampling's optional fields a method requires, and which it
-/// forbids. [`Sampling::validate`] applies it; the published JSON Schema
-/// states it as `if`/`then` — both read THIS table, so the validator and
-/// the schema cannot disagree about what a well-formed sample is.
+/// forbids. [`RelationSupport::check_coherent`] applies it to its sample;
+/// the published JSON Schema states it as `if`/`then` — both read THIS
+/// table, so the validator and the schema cannot disagree about what a
+/// well-formed sample is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SamplingFieldRule {
     /// Fields that must be present for the method.

@@ -8,6 +8,18 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.5.1 — 2026-09-21 — format 0.7 — docs and metadata
+
+- Crate-level docs list the `event_time` module (`EventTime`,
+  `TimeBasis`, `UnknownTime`, format 0.6) and the `ontology` module
+  (`OntologyRevision`, format 0.7), and say an observation's two times
+  are an `EventTime`. The README covers the 0.6 time states.
+- `SamplingFieldRule`'s docs linked a function that never existed; they
+  now link `RelationSupport::check_coherent`, so a strict rustdoc build
+  passes.
+- `documentation` metadata points at docs.rs. No API, wire or format
+  change.
+
 ## 0.5.0 — 2026-09-17 — format 0.7 — elected ontology revisions
 
 - New `ontology` module with the immutable `OntologyRevision` envelope,

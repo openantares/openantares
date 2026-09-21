@@ -6,7 +6,11 @@ vocabulary that appears inside a `.ant` file, and nothing else.
 - **Graph** — `Vertex` and `Edge`, with typed properties and optional
   bitemporal validity (`valid_from`/`valid_to`, `observed_at`,
   `extracted_at`).
-- **Observations** — append-only, source-bound atomic facts.
+- **Observations** — append-only, source-bound atomic facts. Their two
+  times (`observed_at`, `extracted_at`) are an `EventTime`: known —
+  optionally with the basis it was read from — or explicitly unknown
+  with a reason, never null and never a sentinel (format 0.6). A dated
+  observation still serializes as the bare timestamp it always did.
 - **Evidence** — the source material observations and edges cite, with
   span offsets into the source.
 - **Beliefs** — versioned inferred state derived from observations.

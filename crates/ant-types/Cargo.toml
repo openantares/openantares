@@ -1,11 +1,12 @@
 [package]
 name = "ant-types"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "Record types of the open Antares format (.ant): graph, evidence, belief, contradiction, proposals, and ontology revisions"
 readme = "README.md"
 homepage = "https://github.com/openantares/openantares"
 repository = "https://github.com/openantares/openantares"
+documentation = "https://docs.rs/ant-types"
 # Apache-2.0 like antares-format, NOT the workspace's MIT: this crate
 # and antares-format are the subset published to openantares/ant, and
 # the public subset has to be coherently licensed on its own.

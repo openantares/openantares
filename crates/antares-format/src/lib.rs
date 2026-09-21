@@ -192,9 +192,9 @@ pub const EXTENSION: &str = "ant";
 
 /// The `.ant` format version this crate reads and writes, as a
 /// `MAJOR.MINOR` string. Crate version and format version are
-/// formally independent: the crate at any semver may support format
-/// `0.3.x`. Alias of [`FORMAT_VERSION`], named for README/consumer
-/// use.
+/// formally independent: a crate at any semver may support any format
+/// `MAJOR.MINOR`, and this constant — not the crate version — says which.
+/// Alias of [`FORMAT_VERSION`], named for README/consumer use.
 pub const SUPPORTED_FORMAT_VERSION: &str = FORMAT_VERSION;
 
 /// Major version this reader implements. See [`FormatVersion`].

@@ -5,6 +5,14 @@ a record kind is a crate MINOR here: `AntRecord` is exhaustively matched
 by consumers (this repository's own CLI needed a new arm), and `Counts`
 gains a field. See `ant-types/CHANGELOG.md` for the train rule.
 
+## 0.5.1 — 2026-09-21 — format 0.7 — docs and metadata
+
+- `SUPPORTED_FORMAT_VERSION`'s doc comment no longer names format
+  `0.3.x`: a crate at any semver may support any format `MAJOR.MINOR`,
+  and the constant says which.
+- `documentation` metadata points at docs.rs. No API, wire or format
+  change.
+
 ## 0.5.0 — 2026-09-17 — format 0.7 — elected ontology revisions
 
 - `AntRecord::OntologyRevision { data: Box<OntologyRevision> }`, counted

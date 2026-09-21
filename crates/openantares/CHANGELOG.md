@@ -3,6 +3,10 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.5.1 — 2026-09-21 — format 0.7
+
+- No CLI change. Moves with the train.
+
 ## 0.5.0 — 2026-09-17 — format 0.7
 
 - `info` tallies and prints native `ontology revisions`.

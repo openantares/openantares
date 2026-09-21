@@ -5,13 +5,21 @@
 //!
 //! - [`graph`] — [`Vertex`] and [`Edge`], with typed properties and
 //!   optional bitemporal validity.
-//! - [`observation`] — append-only, source-bound atomic facts.
+//! - [`observation`] — append-only, source-bound atomic facts. Each
+//!   carries two times — when the thing happened and when it was
+//!   extracted — and both are an [`EventTime`].
 //! - [`evidence`] — the source material observations and edges cite.
 //! - [`belief`] — versioned inferred state derived from observations.
 //! - [`contradiction`] — cases comparing two or more exact claim
 //!   revisions, with three independent state families (v0.4).
 //! - [`proposal`] — relationship proposals: what the reconnaissance
 //!   loop proposed, what it measured, and what was decided (v0.5).
+//! - [`event_time`] — [`EventTime`], [`TimeBasis`] and [`UnknownTime`]:
+//!   an observation time that is known, optionally with the basis it
+//!   was read from, or explicitly unknown with a reason — never null
+//!   and never a sentinel (v0.6).
+//! - [`ontology`] — [`OntologyRevision`]: immutable elected semantic
+//!   manifests (v0.7).
 //! - [`schema`] — OpenSPG-compatible type declarations.
 //! - [`author`] — the provenance stamp records can carry.
 //!
