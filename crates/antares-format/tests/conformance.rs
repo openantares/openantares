@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use antares_format::{AntReader, AntRecord};
+use antares_format::{AntReader, AntRecord, MANIFEST_MEMORY_BUDGET_BYTES};
 
 /// Directory holding the conformance goldens.
 ///
@@ -60,6 +60,8 @@ fn basic_golden_verifies_with_expected_counts() {
             AntRecord::ContradictionCase { .. } => "contradiction_case",
             AntRecord::RelationshipProposal { .. } => "relationship_proposal",
             AntRecord::OntologyRevision { .. } => "ontology_revision",
+            AntRecord::OriginalChunk { .. } => "original_chunk",
+            AntRecord::OriginalSource { .. } => "original_source",
             AntRecord::Manifest(_) | AntRecord::Trailer { .. } => unreachable!(),
         });
     }
@@ -210,9 +212,11 @@ fn older_minor_is_readable_and_not_flagged_ahead() {
 /// is the only safe answer — and the message has to say that.
 #[test]
 fn different_major_is_refused_with_a_reason() {
-    let err = read_all(&stream_at("1.0", None)).expect_err("v1.0 must be refused");
+    // 0 and 1 are this reader's majors (1.x carries stored originals);
+    // 2 is not.
+    let err = read_all(&stream_at("2.0", None)).expect_err("v2.0 must be refused");
     let msg = format!("{err}");
-    assert!(msg.contains("v1.0"), "must name the file's version: {msg}");
+    assert!(msg.contains("v2.0"), "must name the file's version: {msg}");
     assert!(
         msg.contains(FORMAT_VERSION),
         "must name the reader's version: {msg}"
@@ -295,9 +299,9 @@ fn tombstones_golden_surfaces_both_planes_and_counts_them() {
 #[test]
 fn major_version_golden_is_refused() {
     let bytes = golden("major_version.ant");
-    let err = read_all(&bytes).expect_err("a v1.0 file must be refused by a 0.x reader");
+    let err = read_all(&bytes).expect_err("a v2.0 file must be refused by a 0.x/1.x reader");
     let msg = format!("{err}");
-    assert!(msg.contains("v1.0"), "must name the file's version: {msg}");
+    assert!(msg.contains("v2.0"), "must name the file's version: {msg}");
     assert!(
         msg.contains("Major versions are not compatible"),
         "must be refused for the VERSION, not for some other defect: {msg}"
@@ -698,4 +702,477 @@ fn an_older_trailer_reads_the_new_count_as_zero_and_a_newer_one_is_ignored() {
     )
     .expect("a later trailer key is not an error");
     assert_eq!(ahead.relationship_proposals, 1);
+}
+
+// ---------------------------------------------------------------------
+// v1.0: stored originals.
+// ---------------------------------------------------------------------
+
+/// A v1.0 file without originals is valid too: the major is about what a
+/// file MAY carry, and a 1.x reader reads both majors.
+#[test]
+fn a_v1_stream_is_readable_and_a_v0_stream_still_is() {
+    let (verified, ahead, n) = read_all(&stream_at("1.0", None)).expect("v1.0 reads");
+    assert!(verified && !ahead && n == 1);
+    let (verified, ahead, _) = read_all(&stream_at("0.7", None)).expect("v0.7 reads");
+    assert!(verified && !ahead);
+    let (_, ahead, _) = read_all(&stream_at("1.3", None)).expect("a newer 1.x minor reads");
+    assert!(ahead, "a newer minor of major 1 is flagged ahead");
+}
+
+/// Opaque coverage numbers are read exactly: the Rust reader agrees with
+/// the value the file names, as the Python and JS readers do, although the
+/// shared serde_json parser would read 51.248178375505404 as
+/// 51.24817837550541 (`exact_json` re-reads the 1.0 opaque fields).
+#[test]
+fn coverage_numbers_are_read_exactly() {
+    let bytes = golden("derivative_coverage_exact.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("golden opens");
+    let mut coverage = None;
+    while let Some(rec) = r.next_record().expect("valid golden") {
+        if let AntRecord::Evidence { data } = rec {
+            if let Some(d) = data.derivation {
+                coverage.get_or_insert(d.segment.coverage);
+            }
+        }
+    }
+    let coverage = coverage.expect("a derivative");
+    assert_eq!(
+        serde_json::to_string(&coverage["differential"]).unwrap(),
+        "51.248178375505404",
+        "the differential double read exactly"
+    );
+    assert_eq!(
+        serde_json::to_string(&coverage["n"]).unwrap(),
+        "9007199254740993"
+    );
+}
+
+/// A source holding a valid finite double the shared parser refuses as out
+/// of range (17976931348623158e292, f64::MAX correctly rounded) reads, and
+/// the value is exact (revision 29).
+#[test]
+fn a_source_the_shared_parser_refuses_reads_exactly() {
+    let bytes = golden("source_reference_max_double.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("golden opens");
+    let mut sources = Vec::new();
+    while let Some(rec) = r.next_record().expect("valid golden") {
+        if let AntRecord::OriginalSource { data } = rec {
+            sources.push(data.source);
+        }
+    }
+    assert!(r.verified);
+    assert_eq!(sources[0]["max"].as_f64(), Some(f64::MAX));
+    assert_eq!(
+        serde_json::to_string(&sources[0]["max"]).unwrap(),
+        "1.7976931348623157e+308"
+    );
+}
+
+/// Opaque values nested exactly at the 64-level bound read, whole: the
+/// bound refuses one level more (`every_original_negative_is_refused_for_its_rule`),
+/// never the limit itself.
+#[test]
+fn opaque_values_at_the_depth_limit_read() {
+    fn depth(v: &serde_json::Value) -> usize {
+        match v {
+            serde_json::Value::Object(m) => 1 + m.values().map(depth).max().unwrap_or(0),
+            serde_json::Value::Array(a) => 1 + a.iter().map(depth).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+    let bytes = golden("derivative_coverage_depth_limit.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("golden opens");
+    let mut coverage = None;
+    while let Some(rec) = r.next_record().expect("a coverage at the limit reads") {
+        if let AntRecord::Evidence { data } = rec {
+            if let Some(d) = data.derivation {
+                coverage.get_or_insert(d.segment.coverage);
+            }
+        }
+    }
+    assert!(r.verified);
+    let coverage = coverage.expect("a derivative");
+    assert_eq!(depth(&coverage), ant_types::Derivation::COVERAGE_MAX_DEPTH);
+
+    let bytes = golden("source_reference_depth_limit.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("golden opens");
+    let mut sources = Vec::new();
+    while let Some(rec) = r.next_record().expect("a source at the limit reads") {
+        if let AntRecord::OriginalSource { data } = rec {
+            sources.push(data.source);
+        }
+    }
+    assert!(r.verified);
+    assert_eq!(
+        depth(&sources[0]),
+        ant_types::SourceReference::SOURCE_MAX_DEPTH
+    );
+}
+
+/// The shared serde_json parser stays the format 0.7 one: 0.7 replay
+/// equality and the canonical ontology digests re-parse JSON through it.
+/// A workspace-wide `float_roundtrip` would change this reading, so the
+/// counterexample is pinned here: enabling that feature turns this red.
+#[test]
+fn the_shared_parser_stays_the_0_7_parser() {
+    let v: serde_json::Value = serde_json::from_str("51.248178375505404").unwrap();
+    assert_eq!(
+        serde_json::to_string(&v).unwrap(),
+        "51.24817837550541",
+        "the shared parser changed; 0.7 replay and ontology digests depend on it"
+    );
+}
+
+/// Slots are full-range u64: the wide-slot golden reads with every slot
+/// exact, past 2^53 and i64::MAX.
+#[test]
+fn derivative_slots_read_as_full_range_u64() {
+    let bytes = golden("derivative_wide_slots.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("wide-slot golden opens");
+    let mut got: Vec<(String, u64)> = Vec::new();
+    while let Some(rec) = r.next_record().expect("valid golden") {
+        if let AntRecord::Evidence { data } = rec {
+            if let Some(d) = &data.derivation {
+                got.push((d.job_id.clone(), d.segment.index));
+            }
+        }
+    }
+    assert!(r.verified);
+    let job = "normalization-golden-0001".to_string();
+    assert_eq!(
+        got,
+        vec![
+            (job.clone(), 0),
+            (job.clone(), 2),
+            (job.clone(), 9_007_199_254_740_992),
+            (job.clone(), 9_007_199_254_740_993),
+            (job.clone(), 9_223_372_036_854_775_808),
+            (job, u64::MAX),
+        ]
+    );
+}
+
+/// The golden's originals come back whole: the reader verified every rule,
+/// and reassembling the chunks gives the declared length and digest.
+#[test]
+fn originals_golden_reassembles_every_original() {
+    let bytes = golden("originals.ant");
+    let mut r = AntReader::new(bytes.as_slice()).expect("v1.0 golden opens");
+    assert_eq!(
+        r.version.to_string(),
+        antares_format::ORIGINALS_FORMAT_VERSION
+    );
+    let mut got: Vec<(String, u64, String, u64)> = Vec::new();
+    let mut hasher = Sha256::new();
+    while let Some(rec) = r.next_record().expect("valid golden") {
+        match rec {
+            AntRecord::Evidence { data } => {
+                if let Some((_, _, sha, _)) = got.last_mut() {
+                    if sha.is_empty() {
+                        *sha = format!("{:x}", std::mem::take(&mut hasher).finalize());
+                    }
+                }
+                if let Some(blob) = &data.source_blob {
+                    got.push((data.id.0.clone(), 0, String::new(), 0));
+                    if blob.byte_length == 0 {
+                        got.last_mut().unwrap().2 = format!("{:x}", Sha256::digest(b""));
+                    }
+                }
+            }
+            AntRecord::OriginalChunk { data } => {
+                let raw = data.decode().expect("base64");
+                let last = got.last_mut().expect("a chunk follows its evidence");
+                last.1 += raw.len() as u64;
+                last.3 += 1;
+                hasher.update(&raw);
+            }
+            _ => {}
+        }
+    }
+    assert!(r.verified);
+    let raw: Vec<u8> = (0..150u32).map(|i| ((i * 7 + 3) % 256) as u8).collect();
+    assert_eq!(
+        got,
+        vec![
+            (
+                "ev_original".to_string(),
+                150,
+                format!("{:x}", Sha256::digest(&raw)),
+                3
+            ),
+            (
+                "ev_empty".to_string(),
+                0,
+                format!("{:x}", Sha256::digest(b"")),
+                0
+            ),
+        ]
+    );
+}
+
+/// Each negative is valid in every other respect (its trailer checks
+/// out), so the refusal is for the original rule it breaks — the message
+/// has to say so.
+#[test]
+fn every_original_negative_is_refused_for_its_rule() {
+    for (name, needle) in [
+        ("original_missing_chunk.ant", "missing or reordered"),
+        ("original_reordered.ant", "missing or reordered"),
+        ("original_chunk_digest.ant", "does not match its sha256"),
+        (
+            "original_whole_digest.ant",
+            "does not match its sourceBlob.sha256",
+        ),
+        ("original_interrupted.ant", "chunks missing"),
+        ("original_in_v0.ant", "originals need v1.0"),
+        ("original_source_unbound.ant", "does not bind"),
+        ("derivative_orphan.ant", "does not follow its primary"),
+        ("derivative_unbound.ant", "does not bind to the original"),
+        (
+            "derivative_text_mismatch.ant",
+            "not the text its derivation names",
+        ),
+        ("derivative_out_of_order.ant", "out of (jobId, index) order"),
+        ("derivative_contract.ant", "derivation.contract must be"),
+        (
+            "derivative_primary_control.ant",
+            "primaryEvidenceId must be non-empty with no control characters",
+        ),
+        ("derivative_asset_id.ant", "assetId/sha256 are malformed"),
+        ("derivative_sha256.ant", "assetId/sha256 are malformed"),
+        (
+            "derivative_normalizer.ant",
+            "normalizer.name/version must be",
+        ),
+        (
+            "derivative_configuration.ant",
+            "configurationSha256 must be 64 lowercase hex",
+        ),
+        ("derivative_job_id.ant", "jobId must be 1..=128 characters"),
+        ("derivative_locator.ant", "segment.locator must be"),
+        (
+            "derivative_coverage_type.ant",
+            "coverage must be a JSON object",
+        ),
+        ("derivative_coverage_size.ant", "coverage exceeds"),
+        (
+            "derivative_coverage_depth.ant",
+            "coverage nests deeper than 64 levels",
+        ),
+        (
+            "derivative_text_sha256.ant",
+            "textSha256 must be 64 lowercase hex",
+        ),
+        (
+            "derivative_with_original.ant",
+            "carries both a derivation and an original",
+        ),
+        ("derivative_coverage_floats_over.ant", "coverage exceeds"),
+        (
+            "derivative_index_negative_zero.ant",
+            "malformed `evidence` record",
+        ),
+        ("derivative_coverage_non_finite.ant", "number out of range"),
+        (
+            "original_blob_asset_id.ant",
+            "sourceBlob.assetId must be 16..=128 characters",
+        ),
+        (
+            "original_blob_sha256.ant",
+            "sourceBlob.sha256 must be 64 lowercase hex",
+        ),
+        (
+            "original_blob_media_type.ant",
+            "sourceBlob.mediaType must be 1..=255 printable ASCII",
+        ),
+        (
+            "original_blob_file_name.ant",
+            "sourceBlob.fileName must be 1..=1024 bytes with no control",
+        ),
+        (
+            "source_reference_id.ant",
+            "reference.referenceId must be 1..=128 characters",
+        ),
+        (
+            "source_reference_source_type.ant",
+            "reference.source must be a JSON object",
+        ),
+        (
+            "source_reference_source_size.ant",
+            "reference.source exceeds",
+        ),
+        (
+            "source_reference_source_depth.ant",
+            "reference.source nests deeper than 64 levels",
+        ),
+        (
+            "source_reference_evidence_control.ant",
+            "reference.evidenceId must be non-empty with no control",
+        ),
+        (
+            "source_reference_asset_id.ant",
+            "reference.assetId/sha256 are malformed",
+        ),
+    ] {
+        let err = read_all(&golden(name)).expect_err(name);
+        let msg = err.to_string();
+        assert!(
+            msg.contains(needle),
+            "{name}: refused for the wrong reason: {msg}"
+        );
+    }
+}
+
+/// A v1.x data line is bounded, so one hostile chunk line cannot make the
+/// reader allocate without limit; a 0.x file keeps the historical
+/// unbounded read. The bound is exercised with a line just over it.
+#[test]
+fn an_oversized_v1_line_is_refused_before_it_is_buffered() {
+    let manifest = Manifest {
+        format: "antares".into(),
+        version: "1.0".into(),
+        tenant_id: 1,
+        project_id: 1,
+        selection: None,
+        created_at: None,
+        producer: None,
+    };
+    let m = serde_json::to_string(&AntRecord::Manifest(manifest)).unwrap();
+    let huge = format!(
+        r#"{{"kind":"hologram","data":"{}"}}"#,
+        "x".repeat(antares_format::V1_DATA_LINE_MAX_BYTES)
+    );
+    let raw = format!("{m}\n{huge}\n");
+    let bytes = zstd::stream::encode_all(raw.as_bytes(), 1).unwrap();
+    let err = read_all(&bytes).expect_err("an oversized line must be refused");
+    assert!(
+        err.to_string().contains("ARCHIVE_LINE_TOO_LONG"),
+        "refused for the wrong reason: {err}"
+    );
+}
+
+/// A compressed archive whose manifest line is the manifest head and
+/// `"selection":["`, then `fill` repeated `times`, then `open_tail` and the
+/// closing brace — written through the encoder a piece at a time, so the
+/// test never holds the (possibly huge) plaintext line.
+fn manifest_archive(version: &str, fill: &[u8], times: usize, open_tail: &str) -> Vec<u8> {
+    use std::io::Write as _;
+    let mut enc = zstd::stream::write::Encoder::new(Vec::new(), 3).unwrap();
+    write!(
+        enc,
+        "{{\"kind\":\"manifest\",\"format\":\"antares\",\"version\":\"{version}\",\
+         \"tenantId\":1,\"projectId\":1,\"selection\":"
+    )
+    .unwrap();
+    let per = ((1 << 20) / fill.len()).max(1);
+    let piece = fill.repeat(per);
+    enc.write_all(b"[\"").unwrap();
+    let mut left = times;
+    while left > 0 {
+        let n = left.min(per);
+        enc.write_all(&piece[..n * fill.len()]).unwrap();
+        left -= n;
+    }
+    writeln!(enc, "{open_tail}}}").unwrap();
+    enc.finish().unwrap()
+}
+
+fn open_err(bytes: &[u8], budget: Option<usize>) -> Option<String> {
+    let r = match budget {
+        None => AntReader::new(bytes),
+        Some(b) => AntReader::new_with_manifest_budget(bytes, b),
+    };
+    r.err().map(|e| e.to_string())
+}
+
+/// The manifest is read before the version is known, so its bound cannot
+/// depend on it. At the PRODUCTION default budget: a manifest line one byte
+/// over it is refused by name for every version — through the same
+/// `AntReader::new` every importer calls.
+#[test]
+fn an_oversized_manifest_line_is_refused_at_the_default_budget() {
+    let over = MANIFEST_MEMORY_BUDGET_BYTES + 1;
+    for version in ["0.7", "1.0"] {
+        // `[" + x…x + "]` — the line is well over the budget.
+        let bytes = manifest_archive(version, b"x", over, "\"]");
+        let err = open_err(&bytes, None)
+            .unwrap_or_else(|| panic!("v{version}: a manifest over the default budget opened"));
+        assert!(
+            err.contains("ARCHIVE_MANIFEST_TOO_LONG"),
+            "v{version}: refused for the wrong reason: {err}"
+        );
+    }
+}
+
+/// A line under the budget whose DECODED form would not fit is refused
+/// before the parser allocates it: one-byte values expand ~16x or more when
+/// decoded. At the production default: a 4 MiB line of `0,` values.
+#[test]
+fn a_manifest_whose_decoded_form_exceeds_the_default_budget_is_refused() {
+    let values = 2 * 1024 * 1024;
+    // `["",0,0,…,0]`: the line is ~4 MiB, far under the byte budget.
+    let mut raw = String::from(
+        "{\"kind\":\"manifest\",\"format\":\"antares\",\"version\":\"0.7\",\
+         \"tenantId\":1,\"projectId\":1,\"selection\":[0",
+    );
+    raw.push_str(&",0".repeat(values));
+    raw.push_str("]}\n");
+    assert!(
+        raw.len() < MANIFEST_MEMORY_BUDGET_BYTES / 32,
+        "the line itself is small"
+    );
+    let bound = antares_format::decoded_json_bytes_bound(raw.trim_end().as_bytes());
+    assert!(
+        bound as usize > MANIFEST_MEMORY_BUDGET_BYTES,
+        "the fixture must exceed the default decoded budget: bound {bound}"
+    );
+    let bytes = zstd::stream::encode_all(raw.as_bytes(), 3).unwrap();
+    let err = open_err(&bytes, None).expect("a manifest over the decoded budget opened");
+    assert!(
+        err.contains("ARCHIVE_MANIFEST_TOO_LARGE"),
+        "refused for the wrong reason: {err}"
+    );
+}
+
+/// A legitimate large manifest — a whole-scope vault map, one 36-character
+/// record id per attributed record — opens at the default budget, and a
+/// reader configured with a smaller budget refuses it by name, reporting
+/// the budget that would open it; that budget does.
+#[test]
+fn a_large_vault_map_opens_at_the_default_and_its_named_budget() {
+    let ids = 200_000;
+    let mut raw = String::from(
+        "{\"kind\":\"manifest\",\"format\":\"antares\",\"version\":\"0.7\",\
+         \"tenantId\":1,\"projectId\":1,\"selection\":{\"vaults\":{\"eng\":{\"evidence\":[",
+    );
+    for i in 0..ids {
+        if i > 0 {
+            raw.push(',');
+        }
+        raw.push_str(&format!("\"{:036}\"", i));
+    }
+    raw.push_str("]}}}}\n");
+    let bytes = zstd::stream::encode_all(raw.as_bytes(), 3).unwrap();
+    // Opens (and then ends without a trailer — only the manifest matters).
+    assert_eq!(
+        open_err(&bytes, None),
+        None,
+        "a {}-byte vault map must open",
+        raw.len()
+    );
+    let small = raw.len() * 2;
+    let err = open_err(&bytes, Some(small)).expect("under a tight budget it is refused");
+    assert!(err.contains("ARCHIVE_MANIFEST_TOO_LARGE"), "{err}");
+    let named: usize = err
+        .split("at least ")
+        .nth(1)
+        .and_then(|t| t.split(' ').next())
+        .and_then(|n| n.trim_end_matches(')').parse().ok())
+        .unwrap_or_else(|| panic!("the refusal names the budget that opens it: {err}"));
+    assert_eq!(
+        open_err(&bytes, Some(named)),
+        None,
+        "the named budget {named} opens it"
+    );
 }

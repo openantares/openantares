@@ -70,6 +70,8 @@ fn read_all(path: &str) -> Result<(Manifest, Counts, usize, bool), (u8, String)>
                     AntRecord::ContradictionCase { .. } => counts.contradiction_cases += 1,
                     AntRecord::RelationshipProposal { .. } => counts.relationship_proposals += 1,
                     AntRecord::OntologyRevision { .. } => counts.ontology_revisions += 1,
+                    AntRecord::OriginalChunk { .. } => counts.original_chunks += 1,
+                    AntRecord::OriginalSource { .. } => counts.original_sources += 1,
                     AntRecord::Manifest(_) | AntRecord::Trailer { .. } => {}
                 }
             }

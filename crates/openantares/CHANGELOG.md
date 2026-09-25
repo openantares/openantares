@@ -3,6 +3,13 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0
+
+- Validates format 1.0 files that carry stored originals through
+  `antares-format`: every chunk against its digest and each whole
+  original against its evidence's `source_blob`.
+- Tallies `original_chunk` and `original_source` records.
+
 ## 0.5.1 — 2026-09-21 — format 0.7
 
 - No CLI change. Moves with the train.

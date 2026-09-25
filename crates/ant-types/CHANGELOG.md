@@ -8,6 +8,27 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0 — stored originals
+
+- `SourceBlob`: the exact original a primary `Evidence` was cut from
+  (asset id, byte length, SHA-256, media type, file name), with
+  `validate()`. `Evidence` gains `source_blob: Option<SourceBlob>`,
+  absent on every other record so their bytes are unchanged.
+- `SourceReference`: append-only provenance of a stored original (a
+  native folder or picker, a drive item, a mail message), bound to the
+  Evidence's `SourceBlob`, with `validate()`, `binds()` and
+  `same_reference()`. `source` is opaque JSON, at most 16 KiB and 64
+  levels deep.
+- `Derivation`, `DerivationSegment`, `Normalizer` and
+  `NORMALIZED_TEXT_CONTRACT` (`antares.normalized-text/v1`): cleaned
+  text bound to its primary's exact original. `Evidence` gains
+  `derivation: Option<Box<Derivation>>`. `segment.coverage` is opaque
+  JSON, at most 8 KiB and 64 levels deep.
+- New `exact_json` module: exact decoding of those two opaque fields,
+  so a double is correctly rounded and never shifted to a neighbour.
+- Crate MINOR: `Evidence` is a plainly constructed struct and gains two
+  fields.
+
 ## 0.5.1 — 2026-09-21 — format 0.7 — docs and metadata
 
 - Crate-level docs list the `event_time` module (`EventTime`,

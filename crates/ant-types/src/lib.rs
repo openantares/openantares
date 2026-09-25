@@ -9,6 +9,10 @@
 //!   carries two times — when the thing happened and when it was
 //!   extracted — and both are an [`EventTime`].
 //! - [`evidence`] — the source material observations and edges cite.
+//!   A primary Evidence may name its stored original ([`SourceBlob`]),
+//!   where that original came from ([`SourceReference`]), and cleaned
+//!   text may be bound to the exact original it was normalized from
+//!   ([`Derivation`]) (v1.0).
 //! - [`belief`] — versioned inferred state derived from observations.
 //! - [`contradiction`] — cases comparing two or more exact claim
 //!   revisions, with three independent state families (v0.4).
@@ -22,6 +26,9 @@
 //!   manifests (v0.7).
 //! - [`schema`] — OpenSPG-compatible type declarations.
 //! - [`author`] — the provenance stamp records can carry.
+//! - [`exact_json`] — exact decoding of the two v1.0 opaque fields
+//!   (a derivation's `segment.coverage` and a source reference's
+//!   `source`), so a double is never rounded on the way in.
 //!
 //! Property values are typed at SQL fidelity ([`PropertyValue`]).
 //! Legacy scalars stay bare JSON on the wire; the typed additions
@@ -43,6 +50,7 @@ pub mod decimal;
 pub mod error;
 pub mod event_time;
 pub mod evidence;
+pub mod exact_json;
 pub mod graph;
 pub mod ids;
 pub mod observation;
@@ -61,7 +69,10 @@ pub use contradiction::{
 pub use decimal::Decimal;
 pub use error::CoreError;
 pub use event_time::{EventTime, TimeBasis, UnknownTime};
-pub use evidence::{Evidence, EvidenceId};
+pub use evidence::{
+    Derivation, DerivationSegment, Evidence, EvidenceId, Normalizer, SourceBlob, SourceReference,
+    NORMALIZED_TEXT_CONTRACT,
+};
 pub use graph::{Edge, PropertyValue, Vertex};
 pub use ids::{EdgeId, Namespace, ProjectId, TenantId, TypeName, VertexId};
 pub use observation::{ConditionalRevision, Observation, ObservationId};

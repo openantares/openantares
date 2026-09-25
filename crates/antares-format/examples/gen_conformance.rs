@@ -20,13 +20,14 @@ use ant_types::{
     OntologyRevisionId, OntologyRevisionManifest, OntologySemanticItem, OntologySourceOwnerConsent,
     OntologyVaultPin, ProbeRef, ProjectId, PropertyDef, PropertyValue, ProposalOrigin,
     ProposalRevisionId, ProposalStatus, ProposedRelation, RelationSupport, RelationshipProposal,
-    RelationshipProposalId, ReviewerReceipt, Sampling, SchemaType, SourceDependency,
-    SourceManifestRef, SourcePointer, SpgTypeKind, SubjectType, SupportMethod, TenantId, TokenId,
-    TypeName, UserId, ValueType, VaultOccurrence, Vertex, VertexId, WorkflowState,
-    ONTOLOGY_CHAIN_ID, ONTOLOGY_REVISION_DOMAIN,
+    RelationshipProposalId, ReviewerReceipt, Sampling, SchemaType, SourceBlob, SourceDependency,
+    SourceManifestRef, SourcePointer, SourceReference, SpgTypeKind, SubjectType, SupportMethod,
+    TenantId, TokenId, TypeName, UserId, ValueType, VaultOccurrence, Vertex, VertexId,
+    WorkflowState, ONTOLOGY_CHAIN_ID, ONTOLOGY_REVISION_DOMAIN,
 };
 use antares_format::{
-    AntRecord, AntWriter, Counts, Manifest, Tombstone, VectorRecord, FORMAT_VERSION,
+    AntRecord, AntWriter, Counts, Manifest, OriginalChunk, Tombstone, VectorRecord, FORMAT_VERSION,
+    ORIGINALS_FORMAT_VERSION,
 };
 use sha2::{Digest, Sha256};
 
@@ -141,6 +142,8 @@ fn basic() -> Vec<u8> {
         source_type: "email".into(),
         source_id: "mail-9".into(),
         content: "we moved the deal to proposal stage after the demo call".into(),
+        source_blob: None,
+        derivation: None,
         char_start: None,
         char_end: None,
         byte_start: None,
@@ -309,7 +312,9 @@ fn tombstones() -> Vec<u8> {
 /// while being wrong.
 fn major_version() -> Vec<u8> {
     let mut m = manifest();
-    m.version = "1.0".into();
+    // Neither 0.x nor 1.x (stored originals): a reader of both majors
+    // must refuse it.
+    m.version = "2.0".into();
     let m = serde_json::to_string(&AntRecord::Manifest(m)).unwrap();
     let v = serde_json::to_string(&AntRecord::Vertex {
         data: Vertex {
@@ -375,6 +380,8 @@ fn contradiction_cases() -> Vec<u8> {
         source_type: source_type.into(),
         source_id: id.into(),
         content: content.into(),
+        source_blob: None,
+        derivation: None,
         char_start: None,
         char_end: None,
         byte_start: None,
@@ -697,6 +704,8 @@ fn relationship_proposals() -> Vec<u8> {
         source_type: source_type.into(),
         source_id: id.into(),
         content: content.into(),
+        source_blob: None,
+        derivation: None,
         char_start: None,
         char_end: None,
         byte_start: None,
@@ -1179,6 +1188,414 @@ fn ontology_revisions() -> (Vec<u8>, OntologyRevision) {
     (writer.finish().expect("finish"), revision)
 }
 
+/// The stored original of the v1.0 golden: 150 deterministic bytes in
+/// 64-byte chunks (64 + 64 + 22). Real writers use larger chunks (the
+/// engine writes 1 MiB); the rules are the same at any size.
+const ORIGINAL_CHUNK: usize = 64;
+
+/// Opaque coverage facts every reader must return exactly and count as
+/// Rust serializes them: integers past 2^53 and at u64::MAX, and doubles in
+/// every layout serde_json writes (plain, fraction, leading zeros, exponent
+/// with its sign, extremes).
+fn coverage_exact() -> serde_json::Value {
+    serde_json::json!({
+        "n": 9_007_199_254_740_993u64,
+        "m": u64::MAX,
+        "i": i64::MIN,
+        "z": -0.0f64,
+        "f": 1.0f64,
+        "spread": [0.1f64, 1e-7, 1e21, 123_456.789, 5e-324, 1.797_693_134_862_315_7e308,
+                   -2.5e-5, 1e16, 1e15, 0.001_234, 1.234e33, 100.0],
+        // Parsed lossily by serde_json without `float_roundtrip` (it reads
+        // 51.24817837550541); JS and Python keep it. Revision 26 differential.
+        "differential": 51.248_178_375_505_404f64
+
+    })
+}
+
+/// A valid archive with exactly one data line edited as raw text (the first
+/// line containing `from`), its trailer hash recomputed: for fixtures no
+/// typed writer can express (a `-0` literal, a number out of range).
+fn edit_one_line(archive: &[u8], from: &str, to: &str) -> Vec<u8> {
+    let raw = zstd::stream::decode_all(archive).unwrap();
+    let text = String::from_utf8(raw).unwrap();
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let at = lines
+        .iter()
+        .position(|l| l.contains(from))
+        .unwrap_or_else(|| panic!("no line contains {from}"));
+    lines[at] = lines[at].replacen(from, to, 1);
+    let (trailer, body) = lines.split_last_mut().unwrap();
+    let mut hasher = Sha256::new();
+    for line in body.iter() {
+        hasher.update(line.as_bytes());
+        hasher.update(b"\n");
+    }
+    let mut t: serde_json::Value = serde_json::from_str(trailer).unwrap();
+    t["sha256"] = serde_json::json!(format!("{:x}", hasher.finalize()));
+    *trailer = serde_json::to_string(&t).unwrap();
+    let out = lines.join("\n") + "\n";
+    zstd::stream::encode_all(out.as_bytes(), 0).unwrap()
+}
+
+/// A JSON object nesting exactly `levels` objects, itself the first.
+fn nested(levels: usize) -> serde_json::Value {
+    (1..levels).fold(
+        serde_json::json!({"d": 0}),
+        |inner, _| serde_json::json!({"d": inner}),
+    )
+}
+
+fn original_bytes() -> Vec<u8> {
+    (0..150u32).map(|i| ((i * 7 + 3) % 256) as u8).collect()
+}
+
+/// A cleaned-text derivative of `ev_original` (format v1.0): blob-free
+/// Evidence whose typed derivation binds that exact original.
+fn derivative(id: &str, index: u64, text: &str, raw: &[u8]) -> Evidence {
+    derivative_in("normalization-golden-0001", id, index, text, raw)
+}
+
+/// [`derivative`], in a named job.
+fn derivative_in(job: &str, id: &str, index: u64, text: &str, raw: &[u8]) -> Evidence {
+    let mut e = Evidence::quick(
+        id,
+        TenantId(1),
+        ProjectId(1),
+        "text/plain",
+        "ev_original",
+        text,
+    );
+    e.derivation = Some(Box::new(ant_types::Derivation {
+        contract: ant_types::NORMALIZED_TEXT_CONTRACT.into(),
+        primary_evidence_id: "ev_original".into(),
+        asset_id: "asset_original_0001".into(),
+        sha256: format!("{:x}", Sha256::digest(raw)),
+        byte_length: raw.len() as u64,
+        normalizer: ant_types::Normalizer {
+            name: "html5ever-visible".into(),
+            version: "product-3-html-original-v1".into(),
+            configuration_sha256: format!("{:x}", Sha256::digest(b"golden configuration")),
+        },
+        job_id: job.into(),
+        segment: ant_types::DerivationSegment {
+            index,
+            locator: format!("html:line:{}:block:{index}", index.wrapping_add(1)),
+            coverage: serde_json::json!({"units": [index]}),
+        },
+        text_sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
+        text_byte_length: text.len() as u64,
+    }));
+    e
+}
+
+fn original_evidence(id: &str, asset: &str, raw: &[u8]) -> Evidence {
+    let mut e = Evidence::quick(id, TenantId(1), ProjectId(1), "manual_file", id, "");
+    e.source_blob = Some(SourceBlob {
+        asset_id: asset.into(),
+        byte_length: raw.len() as u64,
+        sha256: format!("{:x}", Sha256::digest(raw)),
+        media_type: "application/pdf".into(),
+        file_name: format!("{id}.pdf"),
+    });
+    e
+}
+
+fn chunks_of(evidence: &str, asset: &str, raw: &[u8]) -> Vec<OriginalChunk> {
+    raw.chunks(ORIGINAL_CHUNK)
+        .enumerate()
+        .map(|(i, c)| OriginalChunk::new(evidence, asset, i as u64, (i * ORIGINAL_CHUNK) as u64, c))
+        .collect()
+}
+
+/// How a negative golden departs from the valid originals stream.
+#[derive(Clone, Copy)]
+enum Break {
+    None,
+    MissingChunk,
+    Reordered,
+    ChunkDigest,
+    WholeDigest,
+    Interrupted,
+    InV0,
+    UnboundSource,
+    DerivativeOrphan,
+    DerivativeUnbound,
+    DerivativeText,
+    DerivativeOrder,
+    /// Positive: slots past 2^53 and i64::MAX.
+    WideSlots,
+    /// One negative per structural derivation rule, each breaking only it.
+    DerivContract,
+    DerivPrimaryControl,
+    DerivAssetId,
+    DerivSha,
+    DerivNormalizer,
+    DerivConfiguration,
+    DerivJobId,
+    DerivLocator,
+    DerivCoverageType,
+    DerivCoverageSize,
+    DerivTextSha,
+    DerivWithOriginal,
+    /// Coverage accounting is Rust's serialization: a positive golden
+    /// whose coverage holds exact wide integers and a spread of doubles; a
+    /// positive at 1500 x 1e-6 (7.5 KiB in Rust, larger in naive JS/Python
+    /// spellings); a negative at 2500 x 1.0 (10 KiB in Rust, 5 KiB naive).
+    CoverageExact,
+    CoverageFloatsUnder,
+    CoverageFloatsOver,
+    /// Positive: the first source reference's opaque `source` holds exact
+    /// wide integers and doubles, returned exactly and counted as Rust does.
+    SourceExact,
+    /// One negative per SourceBlob / SourceReference structural rule.
+    BlobAssetId,
+    BlobSha,
+    BlobMediaType,
+    BlobFileName,
+    RefId,
+    RefSourceType,
+    RefSourceSize,
+    RefEvidenceControl,
+    RefAssetId,
+    /// Opaque nesting: coverage and source at exactly the 64-level limit
+    /// (positive), and one level past it (negative).
+    CoverageDepthLimit,
+    DerivCoverageDepth,
+    SourceDepthLimit,
+    RefSourceDepth,
+}
+
+/// The v1.0 golden, or one of its negatives. Every negative has a valid
+/// trailer: the ONLY reason to reject it is the original rule it breaks.
+fn originals(b: Break) -> Vec<u8> {
+    let mut m = manifest();
+    m.version = match b {
+        Break::InV0 => FORMAT_VERSION.into(),
+        _ => ORIGINALS_FORMAT_VERSION.into(),
+    };
+    let raw = original_bytes();
+    let (ev, asset) = ("ev_original", "asset_original_0001");
+    let mut chunks = chunks_of(ev, asset, &raw);
+    match b {
+        Break::MissingChunk => {
+            chunks.remove(1);
+        }
+        Break::Reordered => chunks.swap(1, 2),
+        Break::ChunkDigest => chunks[1].sha256 = format!("{:x}", Sha256::digest(b"not it")),
+        Break::WholeDigest => {
+            // A consistent chunk (its own digest matches) that is not the
+            // original the evidence declares.
+            let mut bad = raw[ORIGINAL_CHUNK..2 * ORIGINAL_CHUNK].to_vec();
+            bad[0] ^= 0xff;
+            chunks[1] = OriginalChunk::new(ev, asset, 1, ORIGINAL_CHUNK as u64, &bad);
+        }
+        _ => {}
+    }
+    let mut w = AntWriter::new(Vec::new(), m, 0).unwrap();
+    let mut primary = original_evidence(ev, asset, &raw);
+    {
+        let blob = primary.source_blob.as_mut().unwrap();
+        match b {
+            Break::BlobAssetId => blob.asset_id = "short".into(),
+            Break::BlobSha => blob.sha256 = blob.sha256.to_uppercase(),
+            Break::BlobMediaType => blob.media_type = "application/pdf; name=\u{e9}".into(),
+            Break::BlobFileName => blob.file_name = "report\n.pdf".into(),
+            _ => {}
+        }
+    }
+    w.write(AntRecord::Evidence { data: primary }).unwrap();
+    let plain = Evidence::quick(
+        "ev_plain",
+        TenantId(1),
+        ProjectId(1),
+        "note",
+        "n1",
+        "cleaned text lives in ordinary evidence",
+    );
+    for (i, c) in chunks.into_iter().enumerate() {
+        if matches!(b, Break::Interrupted) && i == 1 {
+            w.write(AntRecord::Evidence {
+                data: plain.clone(),
+            })
+            .unwrap();
+        }
+        w.write(AntRecord::OriginalChunk { data: c }).unwrap();
+    }
+    // Where the bytes came from: two source references, in referenceId
+    // order, bound to exactly this original.
+    let sha = format!("{:x}", Sha256::digest(&raw));
+    for (i, reference_id, source) in [
+        (
+            "ref-drive-0001",
+            serde_json::json!({"driveId": "drive-1", "itemId": "item-9"}),
+        ),
+        ("ref-picker-0001", serde_json::json!({"origin": "picker"})),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, r)| (i, r.0, r.1))
+    {
+        let bound_sha = if matches!(b, Break::UnboundSource) {
+            format!("{:x}", Sha256::digest(b"other bytes"))
+        } else {
+            sha.clone()
+        };
+        let mut reference = SourceReference {
+            evidence_id: ev.into(),
+            asset_id: asset.into(),
+            sha256: bound_sha,
+            byte_length: raw.len() as u64,
+            reference_id: reference_id.into(),
+            source,
+            recorded_at: chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap(),
+            author: None,
+        };
+        if i == 0 {
+            match b {
+                Break::SourceExact => reference.source = coverage_exact(),
+                Break::RefId => reference.reference_id = "ref drive 0001".into(),
+                Break::RefSourceType => reference.source = serde_json::json!([0]),
+                Break::RefSourceSize => {
+                    reference.source = serde_json::json!({"x": "y".repeat(17_000)})
+                }
+                Break::RefEvidenceControl => reference.evidence_id = format!("{ev}\u{1}"),
+                Break::RefAssetId => reference.asset_id = "short".into(),
+                Break::SourceDepthLimit => {
+                    reference.source = nested(SourceReference::SOURCE_MAX_DEPTH)
+                }
+                Break::RefSourceDepth => {
+                    reference.source = nested(SourceReference::SOURCE_MAX_DEPTH + 1)
+                }
+                _ => {}
+            }
+        }
+        w.write(AntRecord::OriginalSource { data: reference })
+            .unwrap();
+    }
+    // Its cleaned text: two derivatives of one job, in (jobId, index)
+    // order. Slots may be sparse (index 1 is not here).
+    let mut first = derivative("ev_original_text_0", 0, "First cleaned block.", &raw);
+    let mut second = derivative("ev_original_text_2", 2, "Third cleaned block.", &raw);
+    match b {
+        Break::DerivativeUnbound => {
+            first.derivation.as_mut().unwrap().sha256 = format!("{:x}", Sha256::digest(b"other"))
+        }
+        Break::DerivativeText => first.content = "Not the named text.".into(),
+        Break::DerivativeOrder => std::mem::swap(&mut first, &mut second),
+        Break::DerivContract => {
+            let d = first.derivation.as_mut().unwrap();
+            d.contract = "antares.other-text/v1".into();
+        }
+        Break::DerivPrimaryControl => {
+            let d = first.derivation.as_mut().unwrap();
+            d.primary_evidence_id = "ev_original\u{1}".into();
+        }
+        Break::DerivAssetId => {
+            let d = first.derivation.as_mut().unwrap();
+            d.asset_id = "short".into();
+        }
+        Break::DerivSha => {
+            let d = first.derivation.as_mut().unwrap();
+            d.sha256 = d.sha256.to_uppercase();
+        }
+        Break::DerivNormalizer => {
+            let d = first.derivation.as_mut().unwrap();
+            d.normalizer.name = "html5ever visible".into();
+        }
+        Break::DerivConfiguration => {
+            let d = first.derivation.as_mut().unwrap();
+            d.normalizer.configuration_sha256 = d.normalizer.configuration_sha256.to_uppercase();
+        }
+        Break::DerivJobId => {
+            let d = first.derivation.as_mut().unwrap();
+            d.job_id = "normalization golden".into();
+        }
+        Break::DerivLocator => {
+            let d = first.derivation.as_mut().unwrap();
+            d.segment.locator = "x".repeat(ant_types::Derivation::LOCATOR_MAX_BYTES + 1);
+        }
+        Break::DerivCoverageType => {
+            let d = first.derivation.as_mut().unwrap();
+            d.segment.coverage = serde_json::json!([0]);
+        }
+        Break::DerivCoverageSize => {
+            let d = first.derivation.as_mut().unwrap();
+            d.segment.coverage = serde_json::json!({"units": "x".repeat(9000)});
+        }
+        Break::DerivTextSha => {
+            let d = first.derivation.as_mut().unwrap();
+            d.text_sha256 = d.text_sha256.to_uppercase();
+        }
+        Break::CoverageExact => {
+            first.derivation.as_mut().unwrap().segment.coverage = coverage_exact()
+        }
+        Break::CoverageFloatsUnder => {
+            first.derivation.as_mut().unwrap().segment.coverage =
+                serde_json::json!({"a": vec![1e-6f64; 1500]})
+        }
+        Break::CoverageFloatsOver => {
+            first.derivation.as_mut().unwrap().segment.coverage =
+                serde_json::json!({"a": vec![1.0f64; 2500]})
+        }
+        Break::DerivWithOriginal => {
+            first.source_blob =
+                original_evidence("ev_original", "asset_original_0001", &raw).source_blob
+        }
+        Break::CoverageDepthLimit => {
+            first.derivation.as_mut().unwrap().segment.coverage =
+                nested(ant_types::Derivation::COVERAGE_MAX_DEPTH)
+        }
+        Break::DerivCoverageDepth => {
+            first.derivation.as_mut().unwrap().segment.coverage =
+                nested(ant_types::Derivation::COVERAGE_MAX_DEPTH + 1)
+        }
+        _ => {}
+    }
+    if !matches!(b, Break::DerivativeOrphan | Break::Interrupted) {
+        w.write(AntRecord::Evidence {
+            data: first.clone(),
+        })
+        .unwrap();
+        w.write(AntRecord::Evidence { data: second }).unwrap();
+    }
+    // Slots are full-range u64: 2^53 and 2^53+1 are distinct (a double
+    // cannot tell them apart), and i64::MAX+1 and u64::MAX sort above every
+    // smaller slot.
+    let wide: &[(&str, u64)] = match b {
+        Break::WideSlots => &[
+            ("normalization-golden-0001", 9_007_199_254_740_992),
+            ("normalization-golden-0001", 9_007_199_254_740_993),
+            ("normalization-golden-0001", 9_223_372_036_854_775_808),
+            ("normalization-golden-0001", u64::MAX),
+        ],
+        _ => &[],
+    };
+    for (n, (job, index)) in wide.iter().enumerate() {
+        let d = derivative_in(
+            job,
+            &format!("ev_original_wide_{n}"),
+            *index,
+            &format!("Wide block {n}."),
+            &raw,
+        );
+        w.write(AntRecord::Evidence { data: d }).unwrap();
+    }
+    if !matches!(b, Break::Interrupted) {
+        // An empty original: zero chunks, and the empty digest.
+        w.write(AntRecord::Evidence {
+            data: original_evidence("ev_empty", "asset_empty_00001", b""),
+        })
+        .unwrap();
+        w.write(AntRecord::Evidence { data: plain }).unwrap();
+    }
+    if matches!(b, Break::DerivativeOrphan) {
+        // Cleaned text that does not follow its primary's original.
+        w.write(AntRecord::Evidence { data: first }).unwrap();
+    }
+    w.finish().unwrap()
+}
+
 fn main() {
     let dir = out_dir();
     std::fs::create_dir_all(&dir).expect("mkdir golden");
@@ -1199,7 +1616,99 @@ fn main() {
     let (ontology_bytes, ontology_revision) = ontology_revisions();
     std::fs::write(dir.join("ontology_revisions.ant"), ontology_bytes)
         .expect("write ontology_revisions.ant");
-    let expected = serde_json::json!({
+    std::fs::write(dir.join("originals.ant"), originals(Break::None)).expect("write originals.ant");
+    // Raw-literal fixtures on the first derivative (slot 0, coverage
+    // {"units":[0]}): a typed u64 slot may not be `-0` (a double to Rust);
+    // opaque coverage may (it is -0.0 data); no number may be out of range.
+    let base = originals(Break::None);
+    for (name, from, to) in [
+        (
+            "derivative_index_negative_zero.ant",
+            r#""segment":{"index":0,"#,
+            r#""segment":{"index":-0,"#,
+        ),
+        (
+            "derivative_coverage_negative_zero.ant",
+            r#""coverage":{"units":[0]}"#,
+            r#""coverage":{"units":[-0]}"#,
+        ),
+        (
+            "derivative_coverage_non_finite.ant",
+            r#""coverage":{"units":[0]}"#,
+            r#""coverage":{"units":[1e999]}"#,
+        ),
+        // A valid finite double the shared parser refuses as out of range;
+        // correctly rounded it is f64::MAX (revision 29).
+        (
+            "source_reference_max_double.ant",
+            r#""source":{"driveId":"drive-1","itemId":"item-9"}"#,
+            r#""source":{"driveId":"drive-1","itemId":"item-9","max":17976931348623158e292}"#,
+        ),
+    ] {
+        std::fs::write(dir.join(name), edit_one_line(&base, from, to))
+            .unwrap_or_else(|e| panic!("write {name}: {e}"));
+    }
+    for (name, b) in [
+        ("original_missing_chunk.ant", Break::MissingChunk),
+        ("original_reordered.ant", Break::Reordered),
+        ("original_chunk_digest.ant", Break::ChunkDigest),
+        ("original_whole_digest.ant", Break::WholeDigest),
+        ("original_interrupted.ant", Break::Interrupted),
+        ("original_in_v0.ant", Break::InV0),
+        ("original_source_unbound.ant", Break::UnboundSource),
+        ("derivative_orphan.ant", Break::DerivativeOrphan),
+        ("derivative_unbound.ant", Break::DerivativeUnbound),
+        ("derivative_text_mismatch.ant", Break::DerivativeText),
+        ("derivative_out_of_order.ant", Break::DerivativeOrder),
+        ("derivative_wide_slots.ant", Break::WideSlots),
+        ("derivative_coverage_exact.ant", Break::CoverageExact),
+        (
+            "derivative_coverage_floats_under.ant",
+            Break::CoverageFloatsUnder,
+        ),
+        (
+            "derivative_coverage_floats_over.ant",
+            Break::CoverageFloatsOver,
+        ),
+        ("source_reference_exact.ant", Break::SourceExact),
+        ("derivative_contract.ant", Break::DerivContract),
+        ("derivative_primary_control.ant", Break::DerivPrimaryControl),
+        ("derivative_asset_id.ant", Break::DerivAssetId),
+        ("derivative_sha256.ant", Break::DerivSha),
+        ("derivative_normalizer.ant", Break::DerivNormalizer),
+        ("derivative_configuration.ant", Break::DerivConfiguration),
+        ("derivative_job_id.ant", Break::DerivJobId),
+        ("derivative_locator.ant", Break::DerivLocator),
+        ("derivative_coverage_type.ant", Break::DerivCoverageType),
+        ("derivative_coverage_size.ant", Break::DerivCoverageSize),
+        ("derivative_text_sha256.ant", Break::DerivTextSha),
+        ("derivative_with_original.ant", Break::DerivWithOriginal),
+        ("original_blob_asset_id.ant", Break::BlobAssetId),
+        ("original_blob_sha256.ant", Break::BlobSha),
+        ("original_blob_media_type.ant", Break::BlobMediaType),
+        ("original_blob_file_name.ant", Break::BlobFileName),
+        ("source_reference_id.ant", Break::RefId),
+        ("source_reference_source_type.ant", Break::RefSourceType),
+        ("source_reference_source_size.ant", Break::RefSourceSize),
+        (
+            "source_reference_evidence_control.ant",
+            Break::RefEvidenceControl,
+        ),
+        ("source_reference_asset_id.ant", Break::RefAssetId),
+        (
+            "derivative_coverage_depth_limit.ant",
+            Break::CoverageDepthLimit,
+        ),
+        ("derivative_coverage_depth.ant", Break::DerivCoverageDepth),
+        ("source_reference_depth_limit.ant", Break::SourceDepthLimit),
+        ("source_reference_source_depth.ant", Break::RefSourceDepth),
+    ] {
+        std::fs::write(dir.join(name), originals(b))
+            .unwrap_or_else(|e| panic!("write {name}: {e}"));
+    }
+    let original_sha = format!("{:x}", Sha256::digest(original_bytes()));
+    let empty_sha = format!("{:x}", Sha256::digest(b""));
+    let mut expected = serde_json::json!({
         "basic.ant": {
             "version": FORMAT_VERSION,
             "tenantId": 1,
@@ -1313,8 +1822,141 @@ fn main() {
             "ontologyApprovalAttesters": ["machine:main-server"],
             "ontologyRetainedDispositions": [["accepted"]],
             "ontologyAttributionPrincipals": [["user:sme-a"]]
+        },
+        "originals.ant": {
+            "version": ORIGINALS_FORMAT_VERSION,
+            "tenantId": 1,
+            "projectId": 1,
+            "counts": {"schemaTypes": 0, "vertices": 0, "edges": 0,
+                        "observations": 0, "evidence": 5, "beliefs": 0, "vectors": 0,
+                        "vertexTombstones": 0, "edgeTombstones": 0, "contradictionCases": 0,
+                        "relationshipProposals": 0, "ontologyRevisions": 0,
+                        "originalChunks": 3, "originalSources": 2},
+            "recordKinds": ["evidence", "original_chunk", "original_chunk", "original_chunk",
+                             "original_source", "original_source", "evidence", "evidence",
+                             "evidence", "evidence"],
+            // Cleaned-text derivatives, in file order: (id, primary, job, slot).
+            "derivatives": [
+                {"evidenceId": "ev_original_text_0", "primaryEvidenceId": "ev_original",
+                 "jobId": "normalization-golden-0001", "index": 0},
+                {"evidenceId": "ev_original_text_2", "primaryEvidenceId": "ev_original",
+                 "jobId": "normalization-golden-0001", "index": 2}
+            ],
+            // The source references, in file order.
+            "sourceReferenceIds": ["ref-drive-0001", "ref-picker-0001"],
+            // Reassembled from the chunks, in file order. The empty
+            // original has zero chunks and the empty digest.
+            "originals": [
+                {"evidenceId": "ev_original", "byteLength": 150, "sha256": original_sha,
+                 "chunks": 3},
+                {"evidenceId": "ev_empty", "byteLength": 0, "sha256": empty_sha, "chunks": 0}
+            ]
         }
     });
+    // The wide-slot golden is originals.ant plus four more derivatives of
+    // ev_original, after the first two.
+    let mut wide = expected["originals.ant"].clone();
+    wide["counts"]["evidence"] = serde_json::json!(9);
+    let kinds = wide["recordKinds"].as_array_mut().unwrap();
+    for _ in 0..4 {
+        kinds.insert(8, serde_json::json!("evidence"));
+    }
+    let derivatives = wide["derivatives"].as_array_mut().unwrap();
+    for (n, (job, index)) in [
+        ("normalization-golden-0001", 9_007_199_254_740_992u64),
+        ("normalization-golden-0001", 9_007_199_254_740_993),
+        ("normalization-golden-0001", 9_223_372_036_854_775_808),
+        ("normalization-golden-0001", u64::MAX),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        derivatives.push(serde_json::json!({
+            "evidenceId": format!("ev_original_wide_{n}"),
+            "primaryEvidenceId": "ev_original",
+            "jobId": job,
+            "index": index,
+        }));
+    }
+    expected["derivative_wide_slots.ant"] = wide;
+    // The source-exact golden: originals.ant with the first reference's
+    // source replaced; returned exactly and counted as Rust does.
+    {
+        let mut e = expected["originals.ant"].clone();
+        e["sourceBytes"] = serde_json::json!([
+            serde_json::to_vec(&coverage_exact()).unwrap().len(),
+            serde_json::to_vec(&serde_json::json!({"origin": "picker"}))
+                .unwrap()
+                .len()
+        ]);
+        e["source"] = coverage_exact();
+        expected["source_reference_exact.ant"] = e;
+    }
+    // A source nested exactly at the limit reads, returned exactly.
+    {
+        let mut e = expected["originals.ant"].clone();
+        let first = nested(SourceReference::SOURCE_MAX_DEPTH);
+        e["sourceBytes"] = serde_json::json!([
+            serde_json::to_vec(&first).unwrap().len(),
+            serde_json::to_vec(&serde_json::json!({"origin": "picker"}))
+                .unwrap()
+                .len()
+        ]);
+        e["source"] = first;
+        expected["source_reference_depth_limit.ant"] = e;
+    }
+    // f64::MAX written as the token the shared parser refuses: every reader
+    // returns it exactly and counts it as Rust writes it.
+    {
+        let mut e = expected["originals.ant"].clone();
+        let first = serde_json::json!({"driveId": "drive-1", "itemId": "item-9", "max": f64::MAX});
+        e["sourceBytes"] = serde_json::json!([
+            serde_json::to_vec(&first).unwrap().len(),
+            serde_json::to_vec(&serde_json::json!({"origin": "picker"}))
+                .unwrap()
+                .len()
+        ]);
+        e["source"] = first;
+        expected["source_reference_max_double.ant"] = e;
+    }
+    // Opaque -0 is data: accepted, counted as Rust writes it (-0.0).
+    {
+        let mut e = expected["originals.ant"].clone();
+        e["coverageBytes"] = serde_json::json!([
+            serde_json::to_vec(&serde_json::json!({"units": [-0.0f64]}))
+                .unwrap()
+                .len(),
+            serde_json::to_vec(&serde_json::json!({"units": [2]}))
+                .unwrap()
+                .len()
+        ]);
+        e["coverage"] = serde_json::json!({"units": [-0.0f64]});
+        expected["derivative_coverage_negative_zero.ant"] = e;
+    }
+    // Coverage goldens: originals.ant with the first derivative's coverage
+    // replaced. `coverageBytes` is each derivative's coverage size as Rust
+    // serializes it; `coverage` is the first one's value, to be returned
+    // exactly.
+    for (name, first_coverage) in [
+        ("derivative_coverage_exact.ant", coverage_exact()),
+        (
+            "derivative_coverage_floats_under.ant",
+            serde_json::json!({"a": vec![1e-6f64; 1500]}),
+        ),
+        (
+            "derivative_coverage_depth_limit.ant",
+            nested(ant_types::Derivation::COVERAGE_MAX_DEPTH),
+        ),
+    ] {
+        let mut e = expected["originals.ant"].clone();
+        let second_coverage = serde_json::json!({"units": [2]});
+        e["coverageBytes"] = serde_json::json!([
+            serde_json::to_vec(&first_coverage).unwrap().len(),
+            serde_json::to_vec(&second_coverage).unwrap().len()
+        ]);
+        e["coverage"] = first_coverage;
+        expected[name] = e;
+    }
     std::fs::write(
         dir.join("expected.json"),
         serde_json::to_string_pretty(&expected).unwrap(),
@@ -1329,10 +1971,193 @@ fn main() {
     let negatives = serde_json::json!({
         "major_version.ant": {
             "mustReject": true,
-            "why": "declares format v1.0; a 0.x reader must refuse rather than \
-                    misread, because a major bump means field meanings or the \
+            "why": "declares format v2.0; a reader of 0.x and 1.x must refuse rather \
+                    than misread, because a major bump means field meanings or the \
                     container framing changed. Valid in every other respect, so \
                     rejecting it for any other reason is the wrong pass."
+        },
+        "original_missing_chunk.ant": {
+            "mustReject": true,
+            "why": "v1.0: chunk 1 of ev_original is absent; its original cannot be whole."
+        },
+        "original_reordered.ant": {
+            "mustReject": true,
+            "why": "v1.0: chunks 1 and 2 of ev_original are swapped; chunks are contiguous \
+                    and in order."
+        },
+        "original_chunk_digest.ant": {
+            "mustReject": true,
+            "why": "v1.0: chunk 1 of ev_original does not match its own sha256."
+        },
+        "original_whole_digest.ant": {
+            "mustReject": true,
+            "why": "v1.0: every chunk matches its own sha256, but together they are not \
+                    the original ev_original's sourceBlob.sha256 declares."
+        },
+        "original_interrupted.ant": {
+            "mustReject": true,
+            "why": "v1.0: another record appears between ev_original's chunks; an \
+                    original's chunks follow its evidence with nothing in between."
+        },
+        "original_source_unbound.ant": {
+            "mustReject": true,
+            "why": "v1.0: a source reference after ev_original names different bytes (another \
+                    sha256); a reference binds to exactly the original it follows."
+        },
+        "derivative_orphan.ant": {
+            "mustReject": true,
+            "why": "v1.0: a cleaned-text derivative of ev_original appears after unrelated \
+                    records; a derivative follows its primary's original and source references."
+        },
+        "derivative_unbound.ant": {
+            "mustReject": true,
+            "why": "v1.0: a derivative after ev_original names different bytes (another sha256); \
+                    a derivation binds exactly the original it follows."
+        },
+        "derivative_text_mismatch.ant": {
+            "mustReject": true,
+            "why": "v1.0: a derivative's content is not the text its derivation names \
+                    (textSha256/textByteLength)."
+        },
+        "derivative_out_of_order.ant": {
+            "mustReject": true,
+            "why": "v1.0: ev_original's derivatives are not in strictly increasing \
+                    (jobId, index) order."
+        },
+        "derivative_contract.ant": {
+            "mustReject": true,
+            "refusedFor": "derivation.contract must be",
+            "why": "v1.0: a derivative of ev_original names a contract other than antares.normalized-text/v1; the Rust Derivation rule refuses it."
+        },
+        "derivative_primary_control.ant": {
+            "mustReject": true,
+            "refusedFor": "primaryEvidenceId must be non-empty with no control characters",
+            "why": "v1.0: a derivative of ev_original names a primaryEvidenceId with a control character; the Rust Derivation rule refuses it."
+        },
+        "derivative_asset_id.ant": {
+            "mustReject": true,
+            "refusedFor": "assetId/sha256 are malformed",
+            "why": "v1.0: a derivative of ev_original names an assetId shorter than 16 characters; the Rust Derivation rule refuses it."
+        },
+        "derivative_sha256.ant": {
+            "mustReject": true,
+            "refusedFor": "assetId/sha256 are malformed",
+            "why": "v1.0: a derivative of ev_original names a sha256 that is not lowercase hex; the Rust Derivation rule refuses it."
+        },
+        "derivative_normalizer.ant": {
+            "mustReject": true,
+            "refusedFor": "normalizer.name/version must be",
+            "why": "v1.0: a derivative of ev_original names a normalizer outside [A-Za-z0-9_.:-]; the Rust Derivation rule refuses it."
+        },
+        "derivative_configuration.ant": {
+            "mustReject": true,
+            "refusedFor": "configurationSha256 must be 64 lowercase hex",
+            "why": "v1.0: a derivative of ev_original names a normalizer configurationSha256 that is not lowercase hex; the Rust Derivation rule refuses it."
+        },
+        "derivative_job_id.ant": {
+            "mustReject": true,
+            "refusedFor": "jobId must be 1..=128 characters",
+            "why": "v1.0: a derivative of ev_original names a jobId outside [A-Za-z0-9_.:-]; the Rust Derivation rule refuses it."
+        },
+        "derivative_locator.ant": {
+            "mustReject": true,
+            "refusedFor": "segment.locator must be",
+            "why": "v1.0: a derivative of ev_original names a locator one byte over 2 KiB; the Rust Derivation rule refuses it."
+        },
+        "derivative_coverage_type.ant": {
+            "mustReject": true,
+            "refusedFor": "coverage must be a JSON object",
+            "why": "v1.0: a derivative of ev_original carries coverage that is not a JSON object; the Rust Derivation rule refuses it."
+        },
+        "derivative_coverage_size.ant": {
+            "mustReject": true,
+            "refusedFor": "coverage exceeds",
+            "why": "v1.0: a derivative of ev_original carries coverage over 8 KiB serialized; the Rust Derivation rule refuses it."
+        },
+        "derivative_coverage_depth.ant": {
+            "mustReject": true,
+            "refusedFor": "coverage nests deeper than 64 levels",
+            "why": "v1.0: a derivative of ev_original carries coverage nesting 65 objects deep, one past the 64-level bound that keeps it readable inside every envelope; the Rust Derivation rule refuses it."
+        },
+        "derivative_text_sha256.ant": {
+            "mustReject": true,
+            "refusedFor": "textSha256 must be 64 lowercase hex",
+            "why": "v1.0: a derivative of ev_original names a textSha256 that is not lowercase hex; the Rust Derivation rule refuses it."
+        },
+        "derivative_index_negative_zero.ant": {
+            "mustReject": true,
+            "refusedFor": "malformed `evidence` record",
+            "why": "v1.0: a derivative's typed u64 segment.index is the literal -0, which the Rust reader decodes as a double, not a u64."
+        },
+        "derivative_coverage_non_finite.ant": {
+            "mustReject": true,
+            "refusedFor": "number out of range",
+            "why": "v1.0: a derivative's opaque coverage holds 1e999, which no double holds; the Rust reader refuses it (serde_json: number out of range) and no reader may turn it into an infinity."
+        },
+        "derivative_coverage_floats_over.ant": {
+            "mustReject": true,
+            "refusedFor": "coverage exceeds",
+            "why": "v1.0: a derivative's coverage is 2500 copies of 1.0: 10 KiB as the Rust reader serializes it (1.0 is written 1.0), over the 8 KiB bound; a reader counting its own shorter spelling would accept it."
+        },
+        "derivative_with_original.ant": {
+            "mustReject": true,
+            "refusedFor": "carries both a derivation and an original",
+            "why": "v1.0: a derivative of ev_original also carries a sourceBlob; a derivative carries no original."
+        },
+        "original_blob_asset_id.ant": {
+            "mustReject": true,
+            "refusedFor": "sourceBlob.assetId must be 16..=128 characters",
+            "why": "v1.0: ev_original's sourceBlob names an assetId shorter than 16 characters; the Rust rule refuses it."
+        },
+        "original_blob_sha256.ant": {
+            "mustReject": true,
+            "refusedFor": "sourceBlob.sha256 must be 64 lowercase hex",
+            "why": "v1.0: ev_original's sourceBlob names a sha256 that is not lowercase hex; the Rust rule refuses it."
+        },
+        "original_blob_media_type.ant": {
+            "mustReject": true,
+            "refusedFor": "sourceBlob.mediaType must be 1..=255 printable ASCII",
+            "why": "v1.0: ev_original's sourceBlob declares a mediaType that is not printable ASCII; the Rust rule refuses it."
+        },
+        "original_blob_file_name.ant": {
+            "mustReject": true,
+            "refusedFor": "sourceBlob.fileName must be 1..=1024 bytes with no control",
+            "why": "v1.0: ev_original's sourceBlob declares a fileName with a control character; the Rust rule refuses it."
+        },
+        "source_reference_id.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.referenceId must be 1..=128 characters",
+            "why": "v1.0: ev_original's first source reference names a referenceId outside [A-Za-z0-9_.:-]; the Rust rule refuses it."
+        },
+        "source_reference_source_type.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.source must be a JSON object",
+            "why": "v1.0: ev_original's first source reference carries a source that is not a JSON object; the Rust rule refuses it."
+        },
+        "source_reference_source_size.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.source exceeds",
+            "why": "v1.0: ev_original's first source reference carries a source over 16 KiB serialized; the Rust rule refuses it."
+        },
+        "source_reference_source_depth.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.source nests deeper than 64 levels",
+            "why": "v1.0: ev_original's first source reference carries a source nesting 65 objects deep, one past the 64-level bound; the Rust rule refuses it."
+        },
+        "source_reference_evidence_control.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.evidenceId must be non-empty with no control",
+            "why": "v1.0: ev_original's first source reference names an evidenceId with a control character; the Rust rule refuses it."
+        },
+        "source_reference_asset_id.ant": {
+            "mustReject": true,
+            "refusedFor": "reference.assetId/sha256 are malformed",
+            "why": "v1.0: ev_original's first source reference names an assetId shorter than 16 characters; the Rust rule refuses it."
+        },
+        "original_in_v0.ant": {
+            "mustReject": true,
+            "why": "declares v0.7 but carries a sourceBlob and original_chunk records, \
+                    which only v1.0 may: a 0.x reader would drop them silently."
         }
     });
     std::fs::write(

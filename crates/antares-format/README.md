@@ -3,11 +3,14 @@
 Reader and writer for the Open Antares (`.ant`) container: a
 self-contained, compressed, streamable file for exchanging graph data,
 observations, evidence, beliefs, contradiction cases, relationship
-proposals, elected ontology revisions, and embeddings.
+proposals, elected ontology revisions, embeddings, and the stored
+original files evidence was cut from.
 
 This crate reads and writes `.ant` **format 0.7.x**
-(`SUPPORTED_FORMAT_VERSION`). Crate version and format version are
-formally independent.
+(`SUPPORTED_FORMAT_VERSION`) and, for a selection that carries stored
+originals, **format 1.0** (`ORIGINALS_FORMAT_VERSION`); anything
+without an original is still written as 0.7, byte for byte. Crate
+version and format version are formally independent.
 
 ## The container
 
@@ -21,7 +24,9 @@ record types.
 Compatibility is same-major: any minor at the same major is readable
 (minor bumps are additive-only — unknown record kinds are skipped, and
 `AntReader::minor_ahead` reports when a file is newer than the
-reader). A different major is refused explicitly.
+reader). This build reads both majors it writes, 0 and 1; any other
+major is refused explicitly, and a 0.x reader refuses a 1.0 file
+rather than drop its originals.
 
 ## Use
 

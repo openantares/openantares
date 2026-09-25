@@ -42,7 +42,10 @@
 //! - `$id`, `title` and the root `description` are the normative ones.
 
 use ant_types::SamplingMethod;
-use antares_format::{AntRecord, Counts, DATA_KIND_COUNT_KEYS, FORMAT_MAJOR, FORMAT_MINOR};
+use antares_format::{
+    AntRecord, Counts, DATA_KIND_COUNT_KEYS, FORMAT_MAJOR, FORMAT_MINOR,
+    OMITTED_WHEN_ZERO_COUNT_KEYS, ORIGINALS_FORMAT_MAJOR, ORIGINALS_FORMAT_MINOR,
+};
 use schemars::generate::SchemaSettings;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -204,8 +207,8 @@ fn generate() -> (Value, Facts) {
         json!({
             "description": format!(
                 "Forward compatibility: any object with a string `kind` outside the \
-                 v{FORMAT_MAJOR}.{FORMAT_MINOR} vocabulary is valid at the container level and \
-                 MUST be skipped by readers."
+                 v{FORMAT_MAJOR}.{FORMAT_MINOR} / v{ORIGINALS_FORMAT_MAJOR}.{ORIGINALS_FORMAT_MINOR} \
+                 vocabulary is valid at the container level and MUST be skipped by readers."
             ),
             "type": "object",
             "required": ["kind"],
@@ -226,7 +229,10 @@ fn generate() -> (Value, Facts) {
     let schema = json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": SCHEMA_ID,
-        "title": format!("OpenAntares .ant record (format {FORMAT_MAJOR}.{FORMAT_MINOR})"),
+        "title": format!(
+            "OpenAntares .ant record (formats {FORMAT_MAJOR}.{FORMAT_MINOR} and \
+             {ORIGINALS_FORMAT_MAJOR}.{ORIGINALS_FORMAT_MINOR})"
+        ),
         "description": ROOT_DESCRIPTION,
         "type": "object",
         "required": ["kind"],
@@ -677,7 +683,13 @@ fn python_regions(f: &Facts) -> Vec<(&'static str, String)> {
     facts.push_str(&format!(
         "FORMAT_MAJOR = {FORMAT_MAJOR}\nFORMAT_MINOR = {FORMAT_MINOR}\n"
     ));
-    facts.push_str("FORMAT_VERSION = f\"{FORMAT_MAJOR}.{FORMAT_MINOR}\"\n\n");
+    facts.push_str("FORMAT_VERSION = f\"{FORMAT_MAJOR}.{FORMAT_MINOR}\"\n");
+    facts.push_str(&format!(
+        "# Files that carry stored originals (SPEC §5.6).\n\
+         ORIGINALS_FORMAT_MAJOR = {ORIGINALS_FORMAT_MAJOR}\n\
+         ORIGINALS_FORMAT_MINOR = {ORIGINALS_FORMAT_MINOR}\n\
+         ORIGINALS_FORMAT_VERSION = f\"{{ORIGINALS_FORMAT_MAJOR}}.{{ORIGINALS_FORMAT_MINOR}}\"\n\n"
+    ));
     facts.push_str("DATA_KINDS = (\n");
     for k in &f.data_kinds {
         facts.push_str(&format!("    \"{k}\",\n"));
@@ -695,17 +707,27 @@ fn python_regions(f: &Facts) -> Vec<(&'static str, String)> {
     for key in &f.later_keys {
         facts.push_str(&format!("    \"{key}\",\n"));
     }
+    facts.push_str(
+        ")\n\n# Trailer keys a writer omits when zero, so a file that never uses\n\
+         # the kind keeps its earlier trailer bytes.\n_OMITTED_WHEN_ZERO = (\n",
+    );
+    for key in OMITTED_WHEN_ZERO_COUNT_KEYS {
+        facts.push_str(&format!("    \"{key}\",\n"));
+    }
     facts.push_str(")\n");
 
     let mut counts = String::from("@dataclass\nclass Counts:\n");
     for (attr, _) in &f.counts_fields {
         counts.push_str(&format!("    {attr}: int = 0\n"));
     }
-    counts.push_str("\n    def as_trailer_dict(self) -> dict:\n        return {\n");
+    counts.push_str("\n    def as_trailer_dict(self) -> dict:\n        counts = {\n");
     for (attr, key) in &f.counts_fields {
         counts.push_str(&format!("            \"{key}\": self.{attr},\n"));
     }
-    counts.push_str("        }\n\n    def bump(self, kind: str) -> None:\n        attr = {\n");
+    counts.push_str(
+        "        }\n        return {k: v for k, v in counts.items() \
+         if v or k not in _OMITTED_WHEN_ZERO}\n\n    def bump(self, kind: str) -> None:\n        attr = {\n",
+    );
     for (kind, key) in &f.count_keys {
         let attr = &f.counts_fields.iter().find(|(_, k)| k == key).unwrap().0;
         counts.push_str(&format!("            \"{kind}\": \"{attr}\",\n"));
@@ -717,7 +739,11 @@ fn python_regions(f: &Facts) -> Vec<(&'static str, String)> {
 fn js_regions(f: &Facts) -> Vec<(&'static str, String)> {
     let facts = format!(
         "export const FORMAT_MAJOR = {FORMAT_MAJOR};\nexport const FORMAT_MINOR = {FORMAT_MINOR};\n\
-         export const FORMAT_VERSION = `${{FORMAT_MAJOR}}.${{FORMAT_MINOR}}`;\n"
+         export const FORMAT_VERSION = `${{FORMAT_MAJOR}}.${{FORMAT_MINOR}}`;\n\
+         // Files that carry stored originals (SPEC §5.6).\n\
+         export const ORIGINALS_FORMAT_MAJOR = {ORIGINALS_FORMAT_MAJOR};\n\
+         export const ORIGINALS_FORMAT_MINOR = {ORIGINALS_FORMAT_MINOR};\n\
+         export const ORIGINALS_FORMAT_VERSION = `${{ORIGINALS_FORMAT_MAJOR}}.${{ORIGINALS_FORMAT_MINOR}}`;\n"
     );
     let mut kinds = String::from("const DATA_KINDS = new Set([\n");
     for k in &f.data_kinds {
@@ -733,6 +759,13 @@ fn js_regions(f: &Facts) -> Vec<(&'static str, String)> {
          // ignored (spec §7/§8): they count kinds it skipped.\nconst LATER_COUNT_KEYS = [\n",
     );
     for key in &f.later_keys {
+        kinds.push_str(&format!("  \"{key}\",\n"));
+    }
+    kinds.push_str(
+        "];\n\n// Trailer keys a writer omits when zero, so a file that never uses\n\
+         // the kind keeps its earlier trailer bytes.\nconst OMITTED_WHEN_ZERO = [\n",
+    );
+    for key in OMITTED_WHEN_ZERO_COUNT_KEYS {
         kinds.push_str(&format!("  \"{key}\",\n"));
     }
     kinds.push_str("];\n");

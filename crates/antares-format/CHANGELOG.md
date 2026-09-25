@@ -5,6 +5,30 @@ a record kind is a crate MINOR here: `AntRecord` is exhaustively matched
 by consumers (this repository's own CLI needed a new arm), and `Counts`
 gains a field. See `ant-types/CHANGELOG.md` for the train rule.
 
+## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0 — stored originals
+
+- Format 1.0 is written only for a selection that carries stored
+  originals (`ORIGINALS_FORMAT_VERSION` "1.0",
+  `ORIGINALS_FORMAT_MAJOR`/`_MINOR`); everything else is still written
+  as 0.7, byte for byte. `FORMAT_VERSION` stays "0.7".
+- New record kinds `AntRecord::OriginalChunk` (`OriginalChunk`: the
+  original's bytes, base64, in order, each chunk digest-checked and the
+  whole verified against the Evidence's `source_blob`) and
+  `AntRecord::OriginalSource` (a `SourceReference`). The trailer
+  counts them as `originalChunks` / `originalSources`
+  (`Counts::original_chunks` / `original_sources`), omitted when zero
+  (`OMITTED_WHEN_ZERO_COUNT_KEYS`).
+- The reader reads both majors it writes (`FormatVersion::
+  readable_by_current`, `carries_originals`); a 0.x reader refuses a
+  1.0 file at its manifest instead of dropping its originals.
+- Bounds: `ORIGINAL_CHUNK_MAX_BYTES` (8 MiB decoded),
+  `V1_DATA_LINE_MAX_BYTES` (64 MiB) and a manifest memory budget
+  (`MANIFEST_MEMORY_BUDGET_BYTES`, `AntReader::new_with_manifest_budget`,
+  `JsonScan`, `decoded_json_bytes_bound`).
+- The 1.0 opaque fields are decoded exactly through
+  `ant_types::exact_json`. New dependency: `base64` 0.22.
+- Crate MINOR: `AntRecord` gains two variants and `Counts` two fields.
+
 ## 0.5.1 — 2026-09-21 — format 0.7 — docs and metadata
 
 - `SUPPORTED_FORMAT_VERSION`'s doc comment no longer names format

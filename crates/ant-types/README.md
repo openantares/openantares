@@ -12,7 +12,12 @@ vocabulary that appears inside a `.ant` file, and nothing else.
   with a reason, never null and never a sentinel (format 0.6). A dated
   observation still serializes as the bare timestamp it always did.
 - **Evidence** — the source material observations and edges cite, with
-  span offsets into the source.
+  span offsets into the source. A primary Evidence may name the exact
+  original file it was cut from (`SourceBlob`: asset id, length,
+  SHA-256, media type, file name), where that original came from
+  (`SourceReference`), and cleaned text may be bound to that exact
+  original (`Derivation`) (format 1.0). The original's bytes are never
+  embedded in the record.
 - **Beliefs** — versioned inferred state derived from observations.
 - **Contradiction cases** — immutable revisions comparing two or more
   exact claim revisions, carrying references (never copies) and three
@@ -25,6 +30,10 @@ vocabulary that appears inside a `.ant` file, and nothing else.
   (format 0.7).
 - **Schema** — OpenSPG-compatible type declarations.
 - **Authorship** — the provenance stamp records can carry.
+- **Exact JSON** — `exact_json` decodes the two format 1.0 opaque
+  fields (a derivation's `segment.coverage` and a source reference's
+  `source`) with correctly rounded doubles, so no number is rounded on
+  the way in.
 
 Property values are typed at SQL fidelity. Legacy scalars stay bare
 JSON on the wire; the typed additions (decimal, date, time, timestamp,

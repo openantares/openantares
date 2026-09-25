@@ -27,6 +27,8 @@ fn main() {
                 "Dear team, following up on the proposal discussion from our call. \
                 The client asked about implementation timelines and pricing tiers. Item {i}."
             ),
+            source_blob: None,
+            derivation: None,
             char_start: None,
             char_end: None,
             byte_start: None,

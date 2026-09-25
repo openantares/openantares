@@ -1,6 +1,6 @@
 [package]
 name = "ant-types"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 description = "Record types of the open Antares format (.ant): graph, evidence, belief, contradiction, proposals, and ontology revisions"
 readme = "README.md"

@@ -10,8 +10,11 @@ openantares info world.ant                # manifest + per-section counts
 
 `validate` reads each file to the end, enforcing every container rule
 — framing, manifest, version policy, and the trailer's integrity hash
-and per-kind counts. It keeps going after a failing file and exits
-with the most severe code seen. `info` prints the manifest (format
+and per-kind counts. A file that carries stored originals (format
+1.0) is checked through to the bytes: every chunk against its digest
+and each whole original against its evidence's `source_blob`. It
+keeps going after a failing file and exits with the most severe code
+seen. `info` prints the manifest (format
 version, tenant/project ids, producer, selection) and the per-section
 record counts; both commands are read-only.
 

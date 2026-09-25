@@ -1,6 +1,6 @@
 [package]
 name = "antares-format"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 description = "Open Antares format (.ant): streaming graph, evidence, belief, contradiction, proposal, and ontology exchange"
 readme = "README.md"
@@ -24,13 +24,15 @@ missing_docs = "deny"
 [dependencies]
 # Depends on the publishable subset ONLY — no engine crate — so
 # antares-format + ant-types can be extracted together.
-ant-types = { path = "../ant-types", version = "0.5.1" }
+ant-types = { path = "../ant-types", version = "0.6.0" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 zstd = "0.13"
 sha2 = "0.10"
+# v1.0 `original_chunk` records carry their bytes as standard base64.
+base64 = "0.22"
 
 [features]
 default = []
