@@ -20,7 +20,9 @@
 use std::fs::File;
 use std::process::ExitCode;
 
-use antares_format::{AntReader, AntRecord, Counts, Manifest, SUPPORTED_FORMAT_VERSION};
+use antares_format::{
+    AntReader, AntRecord, Counts, Manifest, ORIGINALS_FORMAT_VERSION, SUPPORTED_FORMAT_VERSION,
+};
 
 const EX_OK: u8 = 0;
 const EX_USAGE: u8 = 64;
@@ -115,7 +117,7 @@ fn info_cmd(path: &str) -> u8 {
             println!("file:            {path}");
             println!("format:          {}", manifest.format);
             println!(
-                "format version:  {} (this build reads/writes {SUPPORTED_FORMAT_VERSION}.x{})",
+                "format version:  {} (this build reads/writes {SUPPORTED_FORMAT_VERSION}.x and {ORIGINALS_FORMAT_VERSION}{})",
                 manifest.version,
                 if minor_ahead {
                     "; file is minor-ahead"
@@ -159,4 +161,6 @@ fn print_counts(c: &Counts) {
     println!("  contradiction cases: {}", c.contradiction_cases);
     println!("  relationship proposals: {}", c.relationship_proposals);
     println!("  ontology revisions: {}", c.ontology_revisions);
+    println!("  original chunks:   {}", c.original_chunks);
+    println!("  original sources:  {}", c.original_sources);
 }

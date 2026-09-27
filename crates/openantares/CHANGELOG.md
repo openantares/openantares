@@ -3,6 +3,13 @@
 Moves with `antares-format`; see `ant-types/CHANGELOG.md` for the
 train rule.
 
+## 0.6.1 — 2026-09-26 — formats 0.7 and 1.0
+
+- `info` names both versions this build reads and writes: "0.7.x and
+  1.0". It said only "0.7.x", even on the 1.0 file it had just read.
+- `info` prints the `original chunks` and `original sources` it
+  tallies; 0.6.0 counted them and never showed them.
+
 ## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0
 
 - Validates format 1.0 files that carry stored originals through

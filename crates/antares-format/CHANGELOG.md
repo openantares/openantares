@@ -5,6 +5,10 @@ a record kind is a crate MINOR here: `AntRecord` is exhaustively matched
 by consumers (this repository's own CLI needed a new arm), and `Counts`
 gains a field. See `ant-types/CHANGELOG.md` for the train rule.
 
+## 0.6.1 — 2026-09-26 — formats 0.7 and 1.0
+
+- No library change. Moves with the train.
+
 ## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0 — stored originals
 
 - Format 1.0 is written only for a selection that carries stored

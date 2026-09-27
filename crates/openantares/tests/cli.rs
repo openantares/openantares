@@ -171,6 +171,33 @@ fn info_reports_manifest_and_counts_matching_expected_json() {
 }
 
 #[test]
+fn info_on_an_originals_file_names_both_versions_and_prints_originals() {
+    let p = golden("originals.ant");
+    let out = run(&["info", p.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", text(&out.stderr));
+    let stdout = text(&out.stdout);
+    // Pinned against conformance/golden/expected.json for originals.ant.
+    let supported = format!(
+        "(this build reads/writes {}.x and {})",
+        antares_format::SUPPORTED_FORMAT_VERSION,
+        antares_format::ORIGINALS_FORMAT_VERSION
+    );
+    for needle in [
+        "format version:  1.0 ",
+        supported.as_str(),
+        "records:         10",
+        "evidence:          5",
+        "original chunks:   3",
+        "original sources:  2",
+    ] {
+        assert!(
+            needle_in(&stdout, needle),
+            "missing `{needle}` in:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn info_takes_exactly_one_file() {
     let p = golden("basic.ant");
     let out = run(&["info", p.to_str().unwrap(), p.to_str().unwrap()]);

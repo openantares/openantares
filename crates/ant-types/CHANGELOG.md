@@ -8,6 +8,10 @@ minor that adds a record kind is therefore a crate MINOR across the
 publishable train (`ant-types`, `antares-format`, `openantares`), which
 moves together so the registry stays coherent in dependency order.
 
+## 0.6.1 — 2026-09-26 — formats 0.7 and 1.0
+
+- No change. Moves with the train.
+
 ## 0.6.0 — 2026-09-25 — formats 0.7 and 1.0 — stored originals
 
 - `SourceBlob`: the exact original a primary `Evidence` was cut from
