@@ -76,7 +76,7 @@ The normative specification, the JSON Schema, the reference bindings for
 Python and JavaScript, and the golden files every implementation is verified
 against live in **[openantares/ant](https://github.com/openantares/ant)** —
 see [SPEC.md](https://github.com/openantares/ant/blob/main/SPEC.md) and the
-[v1.0.0 release](https://github.com/openantares/ant/releases/tag/v1.0.0).
+[v1.0.1 release](https://github.com/openantares/ant/releases/tag/v1.0.1).
 
 CI here runs this crate's conformance suite against those goldens, pinned at
 the format's release tag, so the canonical writer and the published format
